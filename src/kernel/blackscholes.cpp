@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <random>
+#include <cmath>
 
 #define inv_sqrt_2xPI 0.39894228040143270286
 #define p_val 0.2316419
@@ -149,10 +150,11 @@ void stu_BlkSchls(
     const std::vector<float>& strike,
     const std::vector<float>& rate,
     const std::vector<float>& volatility,
-    const std::vector<float>& time) {
-
+    const std::vector<float>& time) 
+{
     const size_t n = spotPrice.size();
 
+    // 使用 restrict 关键字帮助编译器优化，避免别名检查
     const float* __restrict s = spotPrice.data();
     const float* __restrict k = strike.data();
     const float* __restrict r = rate.data();
@@ -162,36 +164,66 @@ void stu_BlkSchls(
     float* __restrict call = CallOptionPrice.data();
     float* __restrict put  = PutOptionPrice.data();
 
+    // 常量定义，确保使用单精度浮点数
+    const float inv_s2pi = 0.3989422804f; 
+    const float p        = 0.2316419f;
+    const float a1       = 0.319381530f;
+    const float a2       = -0.356563782f;
+    const float a3       = 1.781477937f;
+    const float a4       = -1.821255978f;
+    const float a5       = 1.330274429f;
+
+    // 启用编译器矢量化
+    #pragma omp simd
     for (size_t i = 0; i < n; ++i) {
+        float si = s[i];
+        float ki = k[i];
+        float ri = r[i];
+        float vi = v[i];
+        float ti = t[i];
 
-        const float Si = s[i];
-        const float Ki = k[i];
-        const float Ri = r[i];
-        const float Vi = v[i];
-        const float Ti = t[i];
+        // 1. 基础参数计算
+        float sqrtT = sqrtf(ti);
+        float v_sqrtT = vi * sqrtT;
+        float inv_v_sqrtT = 1.0f / v_sqrtT;
+        
+        float logTerm = logf(si / ki);
+        float powerTerm = 0.5f * vi * vi;
+        
+        // d1 = (log(s/k) + (r + v^2/2)*t) / (v*sqrt(t))
+        float d1 = ( (ri + powerTerm) * ti + logTerm ) * inv_v_sqrtT;
+        float d2 = d1 - v_sqrtT;
 
-        const float sqrtT = std::sqrt(Ti);
-        const float v2 = Vi * Vi;
+        // 2. 高效 CNDF 计算 (针对 d1 和 d2)
+        // 计算 Nd1
+        float L1 = fabsf(d1);
+        float K1 = 1.0f / (1.0f + p * L1);
+        // 使用 Horner 方案减少乘法
+        float poly1 = K1 * (a1 + K1 * (a2 + K1 * (a3 + K1 * (a4 + K1 * a5))));
+        float n_prime1 = expf(-0.5f * d1 * d1) * inv_s2pi;
+        float res1 = poly1 * n_prime1;
+        float Nd1 = (d1 < 0.0f) ? res1 : 1.0f - res1;
 
-        const float logTerm = std::log(Si / Ki);
-        const float powerTerm = 0.5f * v2;
+        // 计算 Nd2
+        float L2 = fabsf(d2);
+        float K2 = 1.0f / (1.0f + p * L2);
+        float poly2 = K2 * (a1 + K2 * (a2 + K2 * (a3 + K2 * (a4 + K2 * a5))));
+        float n_prime2 = expf(-0.5f * d2 * d2) * inv_s2pi;
+        float res2 = poly2 * n_prime2;
+        float Nd2 = (d2 < 0.0f) ? res2 : 1.0f - res2;
 
-        const float den = Vi * sqrtT;
+        // 3. 计算最终价格
+        float expRT = expf(-ri * ti);
+        float futureValue = ki * expRT;
 
-        const float d1 = ((Ri + powerTerm) * Ti + logTerm) / den;
-        const float d2 = d1 - den;
+        float c_val = (si * Nd1) - (futureValue * Nd2);
+        
+        // 使用 Put-Call Parity (期权平价公式): Put = Call - Spot + Strike * exp(-rt)
+        // 这不仅快，而且在数学上是等价的
+        float p_val = c_val - si + futureValue;
 
-        float Nd1, Nd2;
-        fast_CNDF(d1, Nd1);
-        fast_CNDF(d2, Nd2);
-
-        const float futureValue = Ki * std::exp(-Ri * Ti);
-
-        const float call_i = Si * Nd1 - futureValue * Nd2;
-        const float put_i  = futureValue * (1.0f - Nd2) - Si * (1.0f - Nd1);
-
-        call[i] = call_i;
-        put[i]  = put_i;
+        call[i] = c_val;
+        put[i]  = p_val;
     }
 }
 
