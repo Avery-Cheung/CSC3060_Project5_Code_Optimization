@@ -52,19 +52,19 @@ void stu_matmul(std::vector<float>& C,
     const size_t N = static_cast<size_t>(n);
     const size_t size = N * N;
 
-    // ⚡ 只分配一次 transpose
     std::vector<float> BT(size);
 
-    // transpose B (cache-friendly write)
+    // transpose B
     for (size_t i = 0; i < N; ++i) {
+        const float* b_row = &B[i * N];
         for (size_t j = 0; j < N; ++j) {
-            BT[j * N + i] = B[i * N + j];
+            BT[j * N + i] = b_row[j];
         }
     }
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    const int block = 32; // 🔥 cache blocking size（关键）
+    const int block = 64; // 🔥 关键调优点（比32更适合512）
 
     for (int ii = 0; ii < n; ii += block) {
         for (int jj = 0; jj < n; jj += block) {
@@ -75,16 +75,17 @@ void stu_matmul(std::vector<float>& C,
                 int k_max = std::min(kk + block, n);
 
                 for (int i = ii; i < i_max; ++i) {
-                    float* c_row = &C[(size_t)i * n];
-                    const float* a_row = &A[(size_t)i * n];
+
+                    const float* __restrict a_row = &A[(size_t)i * n];
+                    float* __restrict c_row = &C[(size_t)i * n];
 
                     for (int j = jj; j < j_max; ++j) {
 
-                        const float* b_row = &BT[(size_t)j * n];
+                        const float* __restrict b_row = &BT[(size_t)j * n];
 
                         float sum = c_row[j];
 
-                        // 🚀 inner loop (vectorizable friendly)
+                        // 🔥 连续访问 + compiler 更容易 SIMD
                         for (int k = kk; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
