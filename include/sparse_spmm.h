@@ -23,6 +23,7 @@ struct sparse_spmm_args {
     std::vector<float> out;
     CSRMatrix csr;
     std::vector<float> dense_t;
+    std::vector<float> dense;
     double epsilon = 1e-3;
     // TODO: You may want to add new params at the end...
 };
