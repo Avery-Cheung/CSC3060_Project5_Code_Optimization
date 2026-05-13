@@ -48,37 +48,51 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
                 int n) {
-    const size_t size = static_cast<size_t>(n) * n;
 
+    const size_t N = static_cast<size_t>(n);
+    const size_t size = N * N;
+
+    // ⚡ 只分配一次 transpose
     std::vector<float> BT(size);
 
-    // 转置 B
-    for (int k = 0; k < n; ++k) {
-        for (int j = 0; j < n; ++j) {
-            BT[static_cast<size_t>(j) * n + k] =
-                B[static_cast<size_t>(k) * n + j];
+    // transpose B (cache-friendly write)
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            BT[j * N + i] = B[i * N + j];
         }
     }
 
-    const float* a = A.data();
-    const float* bt = BT.data();
-    float* c = C.data();
+    std::fill(C.begin(), C.end(), 0.0f);
 
-    for (int i = 0; i < n; ++i) {
-        const float* a_row = a + static_cast<size_t>(i) * n;
-        float* c_row = c + static_cast<size_t>(i) * n;
+    const int block = 32; // 🔥 cache blocking size（关键）
 
-        for (int j = 0; j < n; ++j) {
-            const float* bt_row = bt + static_cast<size_t>(j) * n;
+    for (int ii = 0; ii < n; ii += block) {
+        for (int jj = 0; jj < n; jj += block) {
+            for (int kk = 0; kk < n; kk += block) {
 
-            float sum = 0.0f;
+                int i_max = std::min(ii + block, n);
+                int j_max = std::min(jj + block, n);
+                int k_max = std::min(kk + block, n);
 
-            // 与 naive 完全相同的 k 顺序
-            for (int k = 0; k < n; ++k) {
-                sum += a_row[k] * bt_row[k];
+                for (int i = ii; i < i_max; ++i) {
+                    float* c_row = &C[(size_t)i * n];
+                    const float* a_row = &A[(size_t)i * n];
+
+                    for (int j = jj; j < j_max; ++j) {
+
+                        const float* b_row = &BT[(size_t)j * n];
+
+                        float sum = c_row[j];
+
+                        // 🚀 inner loop (vectorizable friendly)
+                        for (int k = kk; k < k_max; ++k) {
+                            sum += a_row[k] * b_row[k];
+                        }
+
+                        c_row[j] = sum;
+                    }
+                }
             }
-
-            c_row[j] = sum;
         }
     }
 }
