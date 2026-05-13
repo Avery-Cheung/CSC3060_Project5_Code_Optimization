@@ -228,10 +228,8 @@ void stu_csr_spmm(const CSRMatrix &csr,
     if (!validate_csr(csr)) {
         throw std::invalid_argument("stu_csr_spmm: invalid CSR matrix.");
     }
-
     const size_t rows = csr.rows;
     const size_t cols = csr.cols;
-
     if (rows == 0 || cols == 0) {
         if (!dense_t.empty() || !out.empty()) {
             throw std::invalid_argument(
@@ -239,66 +237,57 @@ void stu_csr_spmm(const CSRMatrix &csr,
         }
         return;
     }
-
     if (dense_t.size() % cols != 0) {
         throw std::invalid_argument(
             "stu_csr_spmm: dense_t.size() must be a multiple of csr.cols.");
     }
-
     const size_t dense_cols = dense_t.size() / cols;
-
     if (dense_cols == 0) {
-        throw std::invalid_argument(
-            "stu_csr_spmm: dense_cols must be positive.");
+        throw std::invalid_argument("stu_csr_spmm: dense_cols must be positive.");
     }
-
     if (out.size() != rows * dense_cols) {
         throw std::invalid_argument("stu_csr_spmm: out size mismatch.");
     }
 
-    // 清零输出（因为采用 += 累加）
-    std::fill(out.begin(), out.end(), 0.0f);
-
     const int *row_ptr = csr.row_ptr.data();
     const int *col_idx = csr.col_idx.data();
     const float *values = csr.values.data();
-    const float *B = dense_t.data();
-    float *C = out.data();
+    const float *dense_t_ptr = dense_t.data();
 
-    // 主循环：按 sparse row 遍历
-    for (size_t r = 0; r < rows; ++r) {
-        float *out_row = C + r * dense_cols;
+    // 将 dense_t(转置矩阵)转换为更适合 CSR 乘法的行主序 B
+    std::vector<float> B(cols * dense_cols);
+    for (size_t k = 0; k < cols; ++k) {
+        float *b_row = B.data() + k * dense_cols;
+        for (size_t n = 0; n < dense_cols; ++n) {
+            b_row[n] = dense_t_ptr[n * cols + k];
+        }
+    }
+
+    float *out_ptr = out.data();
+    for (int r = 0; r < static_cast<int>(rows); ++r) {
+        float *out_row = out_ptr + static_cast<size_t>(r) * dense_cols;
+        std::fill(out_row, out_row + dense_cols, 0.0f);
 
         const int start = row_ptr[r];
-        const int end   = row_ptr[r + 1];
-
-        // 遍历该行每个非零元素
+        const int end = row_ptr[r + 1];
         for (int p = start; p < end; ++p) {
             const int c = col_idx[p];
             const float a = values[p];
+            const float *b_row = B.data() + static_cast<size_t>(c) * dense_cols;
 
-            // dense_t 中第 c 列在转置后对应：
-            // B_t[n][c] = dense_t[n * cols + c]
-            const float *b_col = B + c;
-
-            // 向量化友好的连续累加
             size_t n = 0;
-
-            // 手工展开 8 次
             for (; n + 7 < dense_cols; n += 8) {
-                out_row[n + 0] += a * b_col[(n + 0) * cols];
-                out_row[n + 1] += a * b_col[(n + 1) * cols];
-                out_row[n + 2] += a * b_col[(n + 2) * cols];
-                out_row[n + 3] += a * b_col[(n + 3) * cols];
-                out_row[n + 4] += a * b_col[(n + 4) * cols];
-                out_row[n + 5] += a * b_col[(n + 5) * cols];
-                out_row[n + 6] += a * b_col[(n + 6) * cols];
-                out_row[n + 7] += a * b_col[(n + 7) * cols];
+                out_row[n + 0] += a * b_row[n + 0];
+                out_row[n + 1] += a * b_row[n + 1];
+                out_row[n + 2] += a * b_row[n + 2];
+                out_row[n + 3] += a * b_row[n + 3];
+                out_row[n + 4] += a * b_row[n + 4];
+                out_row[n + 5] += a * b_row[n + 5];
+                out_row[n + 6] += a * b_row[n + 6];
+                out_row[n + 7] += a * b_row[n + 7];
             }
-
-            // 剩余部分
             for (; n < dense_cols; ++n) {
-                out_row[n] += a * b_col[n * cols];
+                out_row[n] += a * b_row[n];
             }
         }
     }
