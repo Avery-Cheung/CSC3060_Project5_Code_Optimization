@@ -58,94 +58,92 @@ void naive_bitwise(std::span<std::int8_t> result,
 void stu_bitwise(std::span<std::int8_t> result,
                  std::span<const std::int8_t> a,
                  std::span<const std::int8_t> b) {
-    constexpr std::uint8_t kMaskLo = 0x5A;
-    constexpr std::uint8_t kMaskHi = 0xC3;
+    constexpr std::uint64_t maskLo64 = 0x5A5A5A5A5A5A5A5AULL;
+    constexpr std::uint64_t maskHi64 = 0xC3C3C3C3C3C3C3C3ULL;
 
-    constexpr std::uint64_t maskLo64 =
-        0x5A5A5A5A5A5A5A5AULL;
+    const std::size_t n = std::min({result.size(), a.size(), b.size()});
+    if (n == 0) return;
 
-    constexpr std::uint64_t maskHi64 =
-        0xC3C3C3C3C3C3C3C3ULL;
+    const std::uint8_t* pa = reinterpret_cast<const std::uint8_t*>(a.data());
+    const std::uint8_t* pb = reinterpret_cast<const std::uint8_t*>(b.data());
+    std::uint8_t* pr = reinterpret_cast<std::uint8_t*>(result.data());
 
-    const std::size_t n =
-        std::min({result.size(), a.size(), b.size()});
+    const std::size_t chunk = sizeof(std::uint64_t);
+    const std::size_t limit = (n / chunk) * chunk;
 
-    if (n == 0) {
-        return;
+    std::size_t i = 0;
+
+    // 4x unrolling 主循環
+    for (; i + 4 * chunk <= limit; i += 4 * chunk) {
+
+        std::uint64_t va0, vb0;
+        std::uint64_t va1, vb1;
+        std::uint64_t va2, vb2;
+        std::uint64_t va3, vb3;
+
+        std::memcpy(&va0, pa + i + 0 * chunk, chunk);
+        std::memcpy(&vb0, pb + i + 0 * chunk, chunk);
+
+        std::memcpy(&va1, pa + i + 1 * chunk, chunk);
+        std::memcpy(&vb1, pb + i + 1 * chunk, chunk);
+
+        std::memcpy(&va2, pa + i + 2 * chunk, chunk);
+        std::memcpy(&vb2, pb + i + 2 * chunk, chunk);
+
+        std::memcpy(&va3, pa + i + 3 * chunk, chunk);
+        std::memcpy(&vb3, pb + i + 3 * chunk, chunk);
+
+        auto process = [&](std::uint64_t va, std::uint64_t vb, std::size_t off) {
+            std::uint64_t shared = va & vb;
+            std::uint64_t either = va | vb;
+            std::uint64_t diff   = va ^ vb;
+
+            std::uint64_t mixed0 = (diff & maskLo64) | (~shared & ~maskLo64);
+            std::uint64_t mixed1 = ((either ^ maskHi64) & (shared | ~maskHi64)) ^ diff;
+
+            std::uint64_t res = mixed0 ^ mixed1;
+
+            std::memcpy(pr + i + off, &res, chunk);
+        };
+
+        process(va0, vb0, 0 * chunk);
+        process(va1, vb1, 1 * chunk);
+        process(va2, vb2, 2 * chunk);
+        process(va3, vb3, 3 * chunk);
     }
 
-    const auto* pa =
-        reinterpret_cast<const std::uint8_t*>(a.data());
-
-    const auto* pb =
-        reinterpret_cast<const std::uint8_t*>(b.data());
-
-    auto* pr =
-        reinterpret_cast<std::uint8_t*>(result.data());
-
-    constexpr std::size_t chunk = sizeof(std::uint64_t);
-
-    const std::size_t limit =
-        (n / chunk) * chunk;
-
-    // Process 8 bytes at a time
-    for (std::size_t i = 0; i < limit; i += chunk) {
-
-        std::uint64_t va;
-        std::uint64_t vb;
+    // 尾段 1 chunk
+    for (; i < limit; i += chunk) {
+        std::uint64_t va, vb;
 
         std::memcpy(&va, pa + i, chunk);
         std::memcpy(&vb, pb + i, chunk);
 
-        const std::uint64_t shared = va & vb;
-        const std::uint64_t either = va | vb;
-        const std::uint64_t diff = va ^ vb;
+        std::uint64_t shared = va & vb;
+        std::uint64_t either = va | vb;
+        std::uint64_t diff   = va ^ vb;
 
-        const std::uint64_t mixed0 =
-            (diff & maskLo64) |
-            (~shared & ~maskLo64);
+        std::uint64_t mixed0 = (diff & maskLo64) | (~shared & ~maskLo64);
+        std::uint64_t mixed1 = ((either ^ maskHi64) & (shared | ~maskHi64)) ^ diff;
 
-        const std::uint64_t mixed1 =
-            ((either ^ maskHi64) &
-            (shared | ~maskHi64)) ^ diff;
-
-        const std::uint64_t res =
-            mixed0 ^ mixed1;
+        std::uint64_t res = mixed0 ^ mixed1;
 
         std::memcpy(pr + i, &res, chunk);
     }
 
-    // Remaining bytes
-    for (std::size_t i = limit; i < n; ++i) {
+    // tail bytes
+    for (; i < n; ++i) {
+        std::uint8_t ua = pa[i];
+        std::uint8_t ub = pb[i];
 
-        const auto ua =
-            static_cast<std::uint8_t>(pa[i]);
+        std::uint8_t shared = ua & ub;
+        std::uint8_t either = ua | ub;
+        std::uint8_t diff   = ua ^ ub;
 
-        const auto ub =
-            static_cast<std::uint8_t>(pb[i]);
+        std::uint8_t mixed0 = (diff & 0x5A) | (~shared & ~0x5A);
+        std::uint8_t mixed1 = ((either ^ 0xC3) & (shared | ~0xC3)) ^ diff;
 
-        const auto shared =
-            static_cast<std::uint8_t>(ua & ub);
-
-        const auto either =
-            static_cast<std::uint8_t>(ua | ub);
-
-        const auto diff =
-            static_cast<std::uint8_t>(ua ^ ub);
-
-        const auto mixed0 =
-            static_cast<std::uint8_t>(
-                (diff & kMaskLo) |
-                (~shared & ~kMaskLo));
-
-        const auto mixed1 =
-            static_cast<std::uint8_t>(
-                ((either ^ kMaskHi) &
-                (shared | ~kMaskHi)) ^ diff);
-
-        pr[i] =
-            static_cast<std::uint8_t>(
-                mixed0 ^ mixed1);
+        pr[i] = mixed0 ^ mixed1;
     }
 }
 
