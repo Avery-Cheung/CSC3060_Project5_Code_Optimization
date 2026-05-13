@@ -1,1 +1,1 @@
-/usr/bin/c++.exe -Wl,--enable-auto-import CMakeFiles/single_bench.dir/src/main/single_bench.cpp.o -o single_bench.exe -Wl,--out-implib,libsingle_bench.dll.a -Wl,--major-image-version,0,--minor-image-version,0  libkernels.a
+/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/single_bench.dir/src/main/single_bench.cpp.o -o single_bench  libkernels.a

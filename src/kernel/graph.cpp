@@ -101,13 +101,27 @@ void convert_graph_to_csr(GraphCSR& csr, const Graph& graph) {
 
 void stu_graph(std::uint64_t& out, const GraphCSR& graph_csr) {
     std::uint64_t checksum = 0;
-    for (int u = 0; u < graph_csr.n; ++u) {
-        const int start = graph_csr.offsets[u];
-        const int end = graph_csr.offsets[u + 1];
-        for (int i = start; i < end; ++i) {
-            checksum += static_cast<std::uint64_t>(graph_csr.to[i]);
+    const int n = graph_csr.n;
+    const int* offsets = graph_csr.offsets.data();
+    const int* to = graph_csr.to.data();
+
+    for (int u = 0; u < n; ++u) {
+        const int* cur = to + offsets[u];
+        const int* end = to + offsets[u + 1];
+
+        while (cur + 4 <= end) {
+            checksum += static_cast<std::uint64_t>(cur[0]);
+            checksum += static_cast<std::uint64_t>(cur[1]);
+            checksum += static_cast<std::uint64_t>(cur[2]);
+            checksum += static_cast<std::uint64_t>(cur[3]);
+            cur += 4;
+        }
+        while (cur < end) {
+            checksum += static_cast<std::uint64_t>(*cur);
+            ++cur;
         }
     }
+
     out = checksum;
 }
 

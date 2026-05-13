@@ -1,8 +1,7 @@
 file(REMOVE_RECURSE
   "CMakeFiles/run_all.dir/src/main/run_all.cpp.o"
   "CMakeFiles/run_all.dir/src/main/run_all.cpp.o.d"
-  "librun_all.dll.a"
-  "run_all.exe"
+  "run_all"
   "run_all.pdb"
 )
 
