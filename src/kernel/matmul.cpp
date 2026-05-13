@@ -27,6 +27,23 @@ void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     }
 }
 
+void naive_matmul(std::vector<float>& C,
+                  const std::vector<float>& A,
+                  const std::vector<float>& B,
+                  int n) {
+    std::fill(C.begin(), C.end(), 0.0f);
+
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            float sum = 0.0f;
+            for (int k = 0; k < n; ++k) {
+                sum += A[i * n + k] * B[k * n + j];
+            }
+            C[i * n + j] = sum;
+        }
+    }
+}
+
 void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
