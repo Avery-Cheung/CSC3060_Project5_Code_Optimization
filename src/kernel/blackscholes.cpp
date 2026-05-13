@@ -153,53 +153,45 @@ void stu_BlkSchls(
 
     const size_t n = spotPrice.size();
 
-    const float* s = spotPrice.data();
-    const float* k = strike.data();
-    const float* r = rate.data();
-    const float* v = volatility.data();
-    const float* t = time.data();
+    const float* __restrict s = spotPrice.data();
+    const float* __restrict k = strike.data();
+    const float* __restrict r = rate.data();
+    const float* __restrict v = volatility.data();
+    const float* __restrict t = time.data();
 
-    float* call = CallOptionPrice.data();
-    float* put = PutOptionPrice.data();
+    float* __restrict call = CallOptionPrice.data();
+    float* __restrict put  = PutOptionPrice.data();
 
-    #pragma clang loop vectorize(enable)
     for (size_t i = 0; i < n; ++i) {
 
-        const float sqrtT =
-            std::sqrt(t[i]);
+        const float Si = s[i];
+        const float Ki = k[i];
+        const float Ri = r[i];
+        const float Vi = v[i];
+        const float Ti = t[i];
 
-        const float logTerm =
-            std::log(s[i] / k[i]);
+        const float sqrtT = std::sqrt(Ti);
+        const float v2 = Vi * Vi;
 
-        const float powerTerm =
-            0.5f * v[i] * v[i];
+        const float logTerm = std::log(Si / Ki);
+        const float powerTerm = 0.5f * v2;
 
-        const float den =
-            v[i] * sqrtT;
+        const float den = Vi * sqrtT;
 
-        const float d1 =
-            ((r[i] + powerTerm) * t[i] + logTerm)
-            / den;
+        const float d1 = ((Ri + powerTerm) * Ti + logTerm) / den;
+        const float d2 = d1 - den;
 
-        const float d2 =
-            d1 - den;
-
-        float Nd1;
-        float Nd2;
-
+        float Nd1, Nd2;
         fast_CNDF(d1, Nd1);
         fast_CNDF(d2, Nd2);
 
-        const float futureValue =
-            k[i] * std::exp(-r[i] * t[i]);
+        const float futureValue = Ki * std::exp(-Ri * Ti);
 
-        call[i] =
-            s[i] * Nd1 -
-            futureValue * Nd2;
+        const float call_i = Si * Nd1 - futureValue * Nd2;
+        const float put_i  = futureValue * (1.0f - Nd2) - Si * (1.0f - Nd1);
 
-        put[i] =
-            futureValue * (1.0f - Nd2) -
-            s[i] * (1.0f - Nd1);
+        call[i] = call_i;
+        put[i]  = put_i;
     }
 }
 

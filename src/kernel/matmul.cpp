@@ -54,34 +54,44 @@ void stu_matmul(std::vector<float>& C,
 
     std::vector<float> BT(size);
 
-    // transpose B
+    // 🔥 correct transpose (cache friendly)
     for (size_t i = 0; i < N; ++i) {
-        const float* b_row = &B[i * N];
-        float* bt_col = &BT[i];
         for (size_t j = 0; j < N; ++j) {
-            bt_col[j * N] = b_row[j];
+            BT[j * N + i] = B[i * N + j];
         }
     }
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    for (int i = 0; i < n; ++i) {
+    constexpr int BLOCK = 32; // 🔥 stable sweet spot
 
-        const float* __restrict a_row = &A[(size_t)i * n];
-        float* __restrict c_row = &C[(size_t)i * n];
+    for (int ii = 0; ii < n; ii += BLOCK) {
+        for (int jj = 0; jj < n; jj += BLOCK) {
+            for (int kk = 0; kk < n; kk += BLOCK) {
 
-        for (int j = 0; j < n; ++j) {
+                int i_max = std::min(ii + BLOCK, n);
+                int j_max = std::min(jj + BLOCK, n);
+                int k_max = std::min(kk + BLOCK, n);
 
-            const float* __restrict b_col = &BT[(size_t)j * n];
+                for (int i = ii; i < i_max; ++i) {
 
-            float sum = 0.0f;
+                    const float* __restrict a_row = &A[(size_t)i * n];
+                    float* __restrict c_row = &C[(size_t)i * n];
 
-            // 🔥 pure linear k loop (SIMD friendly)
-            for (int k = 0; k < n; ++k) {
-                sum += a_row[k] * b_col[k];
+                    for (int j = jj; j < j_max; ++j) {
+
+                        const float* __restrict b_row = &BT[(size_t)j * n];
+
+                        float sum = c_row[j];
+
+                        for (int k = kk; k < k_max; ++k) {
+                            sum += a_row[k] * b_row[k];
+                        }
+
+                        c_row[j] = sum;
+                    }
+                }
             }
-
-            c_row[j] = sum;
         }
     }
 }
