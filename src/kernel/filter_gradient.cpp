@@ -148,24 +148,30 @@ void stu_filter_gradient(float& out, const std::vector<Pixel>& aos,
     double total = 0.0;
 
     for (std::size_t y = 1; y + 1 < H; ++y) {
-        const Pixel* row_m1 = base + (y - 1) * W;
-        const Pixel* row_0 = row_m1 + W;
-        const Pixel* row_p1 = row_0 + W;
-
-        const Pixel* top = row_m1;
-        const Pixel* mid = row_0;
-        const Pixel* bot = row_p1;
+        const Pixel* top = base + (y - 1) * W;
+        const Pixel* mid = top + W;
+        const Pixel* bot = mid + W;
 
         for (std::size_t x = 1; x + 1 < W; ++x) {
-            const float sum_a = top[0].a + top[1].a + top[2].a +
-                                mid[0].a + mid[1].a + mid[2].a +
-                                bot[0].a + bot[1].a + bot[2].a;
-            const float sum_b = top[0].b + top[1].b + top[2].b +
-                                mid[0].b + mid[1].b + mid[2].b +
-                                bot[0].b + bot[1].b + bot[2].b;
-            const float sum_c = top[0].c + top[1].c + top[2].c +
-                                mid[0].c + mid[1].c + mid[2].c +
-                                bot[0].c + bot[1].c + bot[2].c;
+            const Pixel& t0 = top[0];
+            const Pixel& t1 = top[1];
+            const Pixel& t2 = top[2];
+            const Pixel& m0 = mid[0];
+            const Pixel& m1 = mid[1];
+            const Pixel& m2 = mid[2];
+            const Pixel& b0 = bot[0];
+            const Pixel& b1 = bot[1];
+            const Pixel& b2 = bot[2];
+
+            const float sum_a = t0.a + t1.a + t2.a +
+                                m0.a + m1.a + m2.a +
+                                b0.a + b1.a + b2.a;
+            const float sum_b = t0.b + t1.b + t2.b +
+                                m0.b + m1.b + m2.b +
+                                b0.b + b1.b + b2.b;
+            const float sum_c = t0.c + t1.c + t2.c +
+                                m0.c + m1.c + m2.c +
+                                b0.c + b1.c + b2.c;
 
             const float avg_a = sum_a * inv9;
             const float avg_b = sum_b * inv9;
@@ -173,28 +179,28 @@ void stu_filter_gradient(float& out, const std::vector<Pixel>& aos,
             const float p1 = avg_a * avg_b + avg_c;
 
             const float sobel_dx =
-                -top[0].d + top[2].d
-                -2.0f * mid[0].d + 2.0f * mid[2].d
-                -bot[0].d + bot[2].d;
+                -t0.d + t2.d
+                -2.0f * m0.d + 2.0f * m2.d
+                -b0.d + b2.d;
             const float sobel_ex =
-                -top[0].e + top[2].e
-                -2.0f * mid[0].e + 2.0f * mid[2].e
-                -bot[0].e + bot[2].e;
+                -t0.e + t2.e
+                -2.0f * m0.e + 2.0f * m2.e
+                -b0.e + b2.e;
             const float sobel_fx =
-                -top[0].f + top[2].f
-                -2.0f * mid[0].f + 2.0f * mid[2].f
-                -bot[0].f + bot[2].f;
+                -t0.f + t2.f
+                -2.0f * m0.f + 2.0f * m2.f
+                -b0.f + b2.f;
             const float p2 = sobel_dx * sobel_ex + sobel_fx;
 
             const float sobel_gy =
-                -top[0].g - 2.0f * top[1].g - top[2].g
-                + bot[0].g + 2.0f * bot[1].g + bot[2].g;
+                -t0.g - 2.0f * t1.g - t2.g
+                + b0.g + 2.0f * b1.g + b2.g;
             const float sobel_hy =
-                -top[0].h - 2.0f * top[1].h - top[2].h
-                + bot[0].h + 2.0f * bot[1].h + bot[2].h;
+                -t0.h - 2.0f * t1.h - t2.h
+                + b0.h + 2.0f * b1.h + b2.h;
             const float sobel_iy =
-                -top[0].i - 2.0f * top[1].i - top[2].i
-                + bot[0].i + 2.0f * bot[1].i + bot[2].i;
+                -t0.i - 2.0f * t1.i - t2.i
+                + b0.i + 2.0f * b1.i + b2.i;
             const float p3 = sobel_gy * sobel_hy + sobel_iy;
 
             total += p1 + p2 + p3;
