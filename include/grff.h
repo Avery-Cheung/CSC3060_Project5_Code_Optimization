@@ -18,6 +18,9 @@ struct grff_args {
     
     // Output
     std::vector<float> f_output;
+
+    // Reusable temporary storage for student implementation.
+    std::vector<float> scratch;
     
     double epsilon;
     // TODO: You may want to add new params here

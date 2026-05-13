@@ -144,72 +144,64 @@ void stu_filter_gradient(float& out, const std::vector<Pixel>& aos,
     const std::size_t H = height;
     constexpr float inv9 = 1.0f / 9.0f;
 
-    double total = 0.0f;
+    const Pixel* base = aos.data();
+    double total = 0.0;
 
     for (std::size_t y = 1; y + 1 < H; ++y) {
+        const Pixel* row_m1 = base + (y - 1) * W;
+        const Pixel* row_0 = row_m1 + W;
+        const Pixel* row_p1 = row_0 + W;
+
+        const Pixel* top = row_m1;
+        const Pixel* mid = row_0;
+        const Pixel* bot = row_p1;
+
         for (std::size_t x = 1; x + 1 < W; ++x) {
-            // Precompute row offsets
-            const std::size_t ym1 = (y - 1) * W;
-            const std::size_t y0  = y * W;
-            const std::size_t yp1 = (y + 1) * W;
-
-            const std::size_t xm1 = x - 1;
-            const std::size_t x0  = x;
-            const std::size_t xp1 = x + 1;
-
-            // Compute averages for a, b, c using 3x3 kernel
-            double sum_a = 0.0, sum_b = 0.0, sum_c = 0.0;
-            sum_a += aos[ym1 + xm1].a + aos[ym1 + x0].a + aos[ym1 + xp1].a;
-            sum_a += aos[y0 + xm1].a + aos[y0 + x0].a + aos[y0 + xp1].a;
-            sum_a += aos[yp1 + xm1].a + aos[yp1 + x0].a + aos[yp1 + xp1].a;
-
-            sum_b += aos[ym1 + xm1].b + aos[ym1 + x0].b + aos[ym1 + xp1].b;
-            sum_b += aos[y0 + xm1].b + aos[y0 + x0].b + aos[y0 + xp1].b;
-            sum_b += aos[yp1 + xm1].b + aos[yp1 + x0].b + aos[yp1 + xp1].b;
-
-            sum_c += aos[ym1 + xm1].c + aos[ym1 + x0].c + aos[ym1 + xp1].c;
-            sum_c += aos[y0 + xm1].c + aos[y0 + x0].c + aos[y0 + xp1].c;
-            sum_c += aos[yp1 + xm1].c + aos[yp1 + x0].c + aos[yp1 + xp1].c;
+            const float sum_a = top[0].a + top[1].a + top[2].a +
+                                mid[0].a + mid[1].a + mid[2].a +
+                                bot[0].a + bot[1].a + bot[2].a;
+            const float sum_b = top[0].b + top[1].b + top[2].b +
+                                mid[0].b + mid[1].b + mid[2].b +
+                                bot[0].b + bot[1].b + bot[2].b;
+            const float sum_c = top[0].c + top[1].c + top[2].c +
+                                mid[0].c + mid[1].c + mid[2].c +
+                                bot[0].c + bot[1].c + bot[2].c;
 
             const float avg_a = sum_a * inv9;
             const float avg_b = sum_b * inv9;
             const float avg_c = sum_c * inv9;
             const float p1 = avg_a * avg_b + avg_c;
 
-            // Compute Sobel X gradients
             const float sobel_dx =
-                -aos[ym1 + xm1].d + aos[ym1 + xp1].d
-                -2.0f * aos[y0 + xm1].d + 2.0f * aos[y0 + xp1].d
-                -aos[yp1 + xm1].d + aos[yp1 + xp1].d;
-
+                -top[0].d + top[2].d
+                -2.0f * mid[0].d + 2.0f * mid[2].d
+                -bot[0].d + bot[2].d;
             const float sobel_ex =
-                -aos[ym1 + xm1].e + aos[ym1 + xp1].e
-                -2.0f * aos[y0 + xm1].e + 2.0f * aos[y0 + xp1].e
-                -aos[yp1 + xm1].e + aos[yp1 + xp1].e;
-
+                -top[0].e + top[2].e
+                -2.0f * mid[0].e + 2.0f * mid[2].e
+                -bot[0].e + bot[2].e;
             const float sobel_fx =
-                -aos[ym1 + xm1].f + aos[ym1 + xp1].f
-                -2.0f * aos[y0 + xm1].f + 2.0f * aos[y0 + xp1].f
-                -aos[yp1 + xm1].f + aos[yp1 + xp1].f;
-
+                -top[0].f + top[2].f
+                -2.0f * mid[0].f + 2.0f * mid[2].f
+                -bot[0].f + bot[2].f;
             const float p2 = sobel_dx * sobel_ex + sobel_fx;
 
-            // Compute Sobel Y gradients
             const float sobel_gy =
-                -aos[ym1 + xm1].g - 2.0f * aos[ym1 + x0].g - aos[ym1 + xp1].g
-                + aos[yp1 + xm1].g + 2.0f * aos[yp1 + x0].g + aos[yp1 + xp1].g;
-
+                -top[0].g - 2.0f * top[1].g - top[2].g
+                + bot[0].g + 2.0f * bot[1].g + bot[2].g;
             const float sobel_hy =
-                -aos[ym1 + xm1].h - 2.0f * aos[ym1 + x0].h - aos[ym1 + xp1].h
-                + aos[yp1 + xm1].h + 2.0f * aos[yp1 + x0].h + aos[yp1 + xp1].h;
-
+                -top[0].h - 2.0f * top[1].h - top[2].h
+                + bot[0].h + 2.0f * bot[1].h + bot[2].h;
             const float sobel_iy =
-                -aos[ym1 + xm1].i - 2.0f * aos[ym1 + x0].i - aos[ym1 + xp1].i
-                + aos[yp1 + xm1].i + 2.0f * aos[yp1 + x0].i + aos[yp1 + xp1].i;
-
+                -top[0].i - 2.0f * top[1].i - top[2].i
+                + bot[0].i + 2.0f * bot[1].i + bot[2].i;
             const float p3 = sobel_gy * sobel_hy + sobel_iy;
 
             total += p1 + p2 + p3;
+
+            ++top;
+            ++mid;
+            ++bot;
         }
     }
 

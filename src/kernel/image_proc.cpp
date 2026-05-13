@@ -165,70 +165,165 @@ void stu_image_proc(image_proc_args& args) {
     const size_t w = args.width;
     const size_t h = args.height;
     const size_t n = w * h;
+    if (args.output.size() != n) {
+        args.output.resize(n);
+    }
 
-    float* __restrict__ out = args.output.data();
     const float* __restrict__ r = args.r_channel.data();
     const float* __restrict__ g = args.g_channel.data();
     const float* __restrict__ b = args.b_channel.data();
+    float* __restrict__ out = args.output.data();
 
     const float threshold = args.threshold;
 
-    // Flatten the nested loops into a single linear loop.
-    // This removes repeated y*w multiplications and makes the
-    // memory access pattern simpler for the compiler to optimize.
-    for (size_t i = 0; i < n; ++i) {
+    constexpr float inv_09 = 1.1111111f; // 1.0f / 0.90f
+    constexpr float p0 = 0.11f;
+    constexpr float p1 = 0.22f;
+    constexpr float p2 = 0.33f;
+    constexpr float p3 = 0.44f;
+    constexpr float p4 = 0.55f;
+    constexpr float p5 = 0.66f;
+    constexpr float p6 = 0.77f;
+    constexpr float p7 = 0.88f;
+    constexpr float p8 = 0.99f;
+    constexpr float p9 = 1.01f;
 
-        // -----------------------------------------------------------------
-        // Stage 1: Color correction
-        // -----------------------------------------------------------------
-        // We explicitly store the corrected RGB values because they are reused
-        // later by the mask function.
-        const float r_val = color_correct(r[i]);
-        const float g_val = color_correct(g[i]);
-        const float b_val = color_correct(b[i]);
+    static const float lut[5] = {0.0f, 0.3f, 1.0f, 0.3f, 0.0f};
 
-        // -----------------------------------------------------------------
-        // Stage 2: Luminance extraction
-        // -----------------------------------------------------------------
-        const float gray = compute_gray(r_val, g_val, b_val);
+    auto clamp01 = [](float v) -> float {
+        return (v < 0.0f) ? 0.0f : (v > 1.0f) ? 1.0f : v;
+    };
 
-        // -----------------------------------------------------------------
-        // Stage 3: Contrast enhancement
-        // -----------------------------------------------------------------
-        const float gray_enhanced = enhance_contrast(gray);
+    const size_t limit = n & ~static_cast<size_t>(3);
+    size_t i = 0;
+    for (; i < limit; i += 4) {
+        for (size_t offset = 0; offset < 4; ++offset) {
+            const size_t idx = i + offset;
+            const float r_val = clamp01(r[idx] * 1.05f + 0.02f);
+            const float g_val = clamp01(g[idx] * 1.05f + 0.02f);
+            const float b_val = clamp01(b[idx] * 1.05f + 0.02f);
 
-        // -----------------------------------------------------------------
-        // Stage 4: HDR compression
-        // -----------------------------------------------------------------
-        const float compressed = hdr_compress(gray_enhanced);
+            const float gray = (r_val * 0.299f) + (g_val * 0.587f) +
+                               (b_val * 0.114f);
 
-        // -----------------------------------------------------------------
-        // Stage 5: Masking
-        // -----------------------------------------------------------------
-        const float mask =
-            complex_mask_logic(compressed,
-                               r_val,
-                               g_val,
-                               b_val,
-                               threshold);
+            float adjusted = (gray - 0.05f) * inv_09;
+            adjusted = (adjusted < 0.0f) ? 0.0f :
+                       (adjusted > 1.0f) ? 1.0f :
+                       adjusted;
+            const float gray_enhanced = adjusted * adjusted *
+                                       (3.0f - 2.0f * adjusted);
 
-        // -----------------------------------------------------------------
-        // Stage 6: Importance weighting
-        // -----------------------------------------------------------------
-        const float weight = importance_weight(mask);
+            const float intensity = gray_enhanced * 1.2f;
+            const float g1 = intensity * 0.5f;
+            const float g2 = g1 * g1 + 0.1f;
+            const float g3 = std::sqrt(g2);
+            const float gain = (g3 > 1.0f) ? (1.0f / g3) : (g3 * 0.95f);
+            const float compressed = gray_enhanced * gain;
+            const float compressed_out = compressed / (1.0f + compressed);
 
-        // -----------------------------------------------------------------
-        // Final output
-        // -----------------------------------------------------------------
-        const float result = compressed * weight;
+            float mask;
+            if (gray_enhanced > threshold) {
+                mask = (r_val * p0) + (g_val * p1) - (b_val * p2) + p9;
+                if (mask > 0.8f) {
+                    mask *= p3;
+                } else {
+                    mask += p4;
+                }
+            } else {
+                mask = (r_val * p5) - (g_val * p6) + (b_val * p7) - p8;
+                if (mask < 0.2f) {
+                    mask += p1;
+                } else {
+                    mask *= p2;
+                }
+            }
 
-        // Equivalent to std::clamp(result, 0.0f, 1.0f), but avoids
-        // the function call overhead and is easier for the compiler
-        // to inline/vectorize.
-        out[i] =
-            (result < 0.0f) ? 0.0f :
-            (result > 1.0f) ? 1.0f :
-            result;
+            const float noise = std::sin(gray_enhanced * p0) *
+                                std::cos(r_val * p1);
+            const float final_val = clamp01((mask * 0.7f) + (noise * 0.3f));
+
+            float scaled = final_val * 4.0f;
+            int idx_w = static_cast<int>(scaled);
+            if (idx_w < 0) {
+                idx_w = 0;
+            } else if (idx_w > 4) {
+                idx_w = 4;
+            }
+
+            const float frac = (idx_w < 4) ? (scaled - static_cast<float>(idx_w))
+                                           : 0.0f;
+            const float weight = (idx_w < 4)
+                ? (lut[idx_w] * (1.0f - frac) + lut[idx_w + 1] * frac)
+                : lut[4];
+
+            const float result = compressed_out * weight;
+            out[idx] = (result < 0.0f) ? 0.0f :
+                       (result > 1.0f) ? 1.0f :
+                       result;
+        }
+    }
+
+    for (; i < n; ++i) {
+        const float r_val = clamp01(r[i] * 1.05f + 0.02f);
+        const float g_val = clamp01(g[i] * 1.05f + 0.02f);
+        const float b_val = clamp01(b[i] * 1.05f + 0.02f);
+
+        const float gray = (r_val * 0.299f) + (g_val * 0.587f) +
+                           (b_val * 0.114f);
+
+        float adjusted = (gray - 0.05f) * inv_09;
+        adjusted = (adjusted < 0.0f) ? 0.0f :
+                   (adjusted > 1.0f) ? 1.0f :
+                   adjusted;
+        const float gray_enhanced = adjusted * adjusted *
+                                   (3.0f - 2.0f * adjusted);
+
+        const float intensity = gray_enhanced * 1.2f;
+        const float g1 = intensity * 0.5f;
+        const float g2 = g1 * g1 + 0.1f;
+        const float g3 = std::sqrt(g2);
+        const float gain = (g3 > 1.0f) ? (1.0f / g3) : (g3 * 0.95f);
+        const float compressed = gray_enhanced * gain;
+        const float compressed_out = compressed / (1.0f + compressed);
+
+        float mask;
+        if (gray_enhanced > threshold) {
+            mask = (r_val * p0) + (g_val * p1) - (b_val * p2) + p9;
+            if (mask > 0.8f) {
+                mask *= p3;
+            } else {
+                mask += p4;
+            }
+        } else {
+            mask = (r_val * p5) - (g_val * p6) + (b_val * p7) - p8;
+            if (mask < 0.2f) {
+                mask += p1;
+            } else {
+                mask *= p2;
+            }
+        }
+
+        const float noise = std::sin(gray_enhanced * p0) *
+                            std::cos(r_val * p1);
+        const float final_val = clamp01((mask * 0.7f) + (noise * 0.3f));
+
+        float scaled = final_val * 4.0f;
+        int idx_w = static_cast<int>(scaled);
+        if (idx_w < 0) {
+            idx_w = 0;
+        } else if (idx_w > 4) {
+            idx_w = 4;
+        }
+
+        const float frac = (idx_w < 4) ? (scaled - static_cast<float>(idx_w)) : 0.0f;
+        const float weight = (idx_w < 4)
+            ? (lut[idx_w] * (1.0f - frac) + lut[idx_w + 1] * frac)
+            : lut[4];
+
+        const float result = compressed_out * weight;
+        out[i] = (result < 0.0f) ? 0.0f :
+                 (result > 1.0f) ? 1.0f :
+                 result;
     }
 }
 
