@@ -27,29 +27,12 @@ void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     }
 }
 
-void naive_matmul(std::vector<float>& C,
-                  const std::vector<float>& A,
-                  const std::vector<float>& B,
-                  int n) {
-    std::fill(C.begin(), C.end(), 0.0f);
-
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            float sum = 0.0f;
-            for (int k = 0; k < n; ++k) {
-                sum += A[i * n + k] * B[k * n + j];
-            }
-            C[i * n + j] = sum;
-        }
-    }
-}
-
 void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
                 int n) {
 
-    const size_t N = static_cast<size_t>(n);
+    const size_t N = (size_t)n;
     const size_t size = N * N;
 
     std::vector<float> BT(size);
@@ -57,43 +40,31 @@ void stu_matmul(std::vector<float>& C,
     // transpose B
     for (size_t i = 0; i < N; ++i) {
         const float* b_row = &B[i * N];
+        float* bt_col = &BT[i];
         for (size_t j = 0; j < N; ++j) {
-            BT[j * N + i] = b_row[j];
+            bt_col[j * N] = b_row[j];
         }
     }
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    const int block = 64; // 🔥 关键调优点（比32更适合512）
+    for (int i = 0; i < n; ++i) {
 
-    for (int ii = 0; ii < n; ii += block) {
-        for (int jj = 0; jj < n; jj += block) {
-            for (int kk = 0; kk < n; kk += block) {
+        const float* __restrict a_row = &A[(size_t)i * n];
+        float* __restrict c_row = &C[(size_t)i * n];
 
-                int i_max = std::min(ii + block, n);
-                int j_max = std::min(jj + block, n);
-                int k_max = std::min(kk + block, n);
+        for (int j = 0; j < n; ++j) {
 
-                for (int i = ii; i < i_max; ++i) {
+            const float* __restrict b_col = &BT[(size_t)j * n];
 
-                    const float* __restrict a_row = &A[(size_t)i * n];
-                    float* __restrict c_row = &C[(size_t)i * n];
+            float sum = 0.0f;
 
-                    for (int j = jj; j < j_max; ++j) {
-
-                        const float* __restrict b_row = &BT[(size_t)j * n];
-
-                        float sum = c_row[j];
-
-                        // 🔥 连续访问 + compiler 更容易 SIMD
-                        for (int k = kk; k < k_max; ++k) {
-                            sum += a_row[k] * b_row[k];
-                        }
-
-                        c_row[j] = sum;
-                    }
-                }
+            // 🔥 pure linear k loop (SIMD friendly)
+            for (int k = 0; k < n; ++k) {
+                sum += a_row[k] * b_col[k];
             }
+
+            c_row[j] = sum;
         }
     }
 }
