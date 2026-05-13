@@ -1,0 +1,5 @@
+/Users/Jackylee/Documents/2520/CSC3060/Homework5/CSC3060_Project5_Code_Optimization-main_2/build-debug/CMakeFiles/kernels.dir
+/Users/Jackylee/Documents/2520/CSC3060/Homework5/CSC3060_Project5_Code_Optimization-main_2/build-debug/CMakeFiles/single_bench.dir
+/Users/Jackylee/Documents/2520/CSC3060/Homework5/CSC3060_Project5_Code_Optimization-main_2/build-debug/CMakeFiles/run_all.dir
+/Users/Jackylee/Documents/2520/CSC3060/Homework5/CSC3060_Project5_Code_Optimization-main_2/build-debug/CMakeFiles/edit_cache.dir
+/Users/Jackylee/Documents/2520/CSC3060/Homework5/CSC3060_Project5_Code_Optimization-main_2/build-debug/CMakeFiles/rebuild_cache.dir

@@ -48,7 +48,39 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
                 int n) {
-    // TODO: Implement your version, and call it in stu_matmul_wrapper
+    const size_t size = static_cast<size_t>(n) * n;
+
+    std::vector<float> BT(size);
+
+    // 转置 B
+    for (int k = 0; k < n; ++k) {
+        for (int j = 0; j < n; ++j) {
+            BT[static_cast<size_t>(j) * n + k] =
+                B[static_cast<size_t>(k) * n + j];
+        }
+    }
+
+    const float* a = A.data();
+    const float* bt = BT.data();
+    float* c = C.data();
+
+    for (int i = 0; i < n; ++i) {
+        const float* a_row = a + static_cast<size_t>(i) * n;
+        float* c_row = c + static_cast<size_t>(i) * n;
+
+        for (int j = 0; j < n; ++j) {
+            const float* bt_row = bt + static_cast<size_t>(j) * n;
+
+            float sum = 0.0f;
+
+            // 与 naive 完全相同的 k 顺序
+            for (int k = 0; k < n; ++k) {
+                sum += a_row[k] * bt_row[k];
+            }
+
+            c_row[j] = sum;
+        }
+    }
 }
 
 void naive_matmul_wrapper(void* ctx) {

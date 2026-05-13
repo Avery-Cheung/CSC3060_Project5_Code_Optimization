@@ -77,8 +77,115 @@ void naive_grff(grff_args& args) {
 // -------------------------------------------------------------------------
 // TODO: Student Implementation
 // -------------------------------------------------------------------------
-void stu_grff(grff_args& args) {
 
+void stu_grff(grff_args& args) {
+    const size_t n = args.a_features.size();
+    if (n == 0) return;
+
+    const auto& A = args.a_features;
+    const auto& B = args.b_features;
+    const auto& C = args.c_features;
+    auto& F = args.f_output;
+
+    // Ensure output size is correct
+    if (F.size() != n) {
+        F.resize(n);
+    }
+
+    // ---------------------------------------------------------------------
+    // Temporary buffers
+    //
+    // We only keep the intermediates that are actually needed later:
+    //   G        : gate values
+    //   A_prime  : updated A
+    //   Smooth_A : smoothed A
+    //   B_prime  : updated B
+    //   C_prime  : updated C
+    //
+    // H and E are not stored because they are used only once.
+    // ---------------------------------------------------------------------
+    std::vector<float> G(n);
+    std::vector<float> A_prime(n);
+    std::vector<float> Smooth_A(n);
+    std::vector<float> B_prime(n);
+    std::vector<float> C_prime(n);
+
+    // ---------------------------------------------------------------------
+    // Pass 1:
+    // Compute:
+    //   G[i]
+    //   A_prime[i]
+    // and simultaneously accumulate sum(A_prime)
+    // ---------------------------------------------------------------------
+    float sum_a = 0.0f;
+
+    for (size_t i = 0; i < n; ++i) {
+        const float a = A[i];
+        const float b = B[i];
+
+        const float prod = a * b;
+        const float g =
+            0.5f * (prod / (1.0f + std::fabs(prod)) + 1.0f);
+
+        G[i] = g;
+
+        const float a_p = a + g;
+        A_prime[i] = a_p;
+
+        sum_a += a_p;
+    }
+
+    const float avg_a = sum_a / static_cast<float>(n);
+
+    // ---------------------------------------------------------------------
+    // Pass 2:
+    // Compute Smooth_A
+    // ---------------------------------------------------------------------
+    Smooth_A[0] = A_prime[0];
+    for (size_t i = 1; i < n; ++i) {
+        Smooth_A[i] = 0.5f * (A_prime[i] + A_prime[i - 1]);
+    }
+
+    // ---------------------------------------------------------------------
+    // Pass 3:
+    // Compute:
+    //   B_prime[i]
+    //   C_prime[i]
+    // ---------------------------------------------------------------------
+    for (size_t i = 0; i < n; ++i) {
+        const float g = G[i];
+        const float smooth = Smooth_A[i];
+
+        B_prime[i] = B[i] * (1.0f - g) * avg_a;
+
+        C_prime[i] =
+            C[i] + smooth / (1.0f + std::fabs(smooth));
+    }
+
+    // ---------------------------------------------------------------------
+    // Pass 4:
+    // Final output
+    //
+    // result = C_prime - E
+    // E = (H + B_prime)/(1 + |Smooth_A|)
+    // H = Smooth_A * C_prime
+    //
+    // We compute everything directly without storing H or E.
+    // ---------------------------------------------------------------------
+    for (size_t i = 0; i < n; ++i) {
+        const float smooth = Smooth_A[i];
+        const float c_p = C_prime[i];
+        const float b_p = B_prime[i];
+
+        const float denom = 1.0f + std::fabs(smooth);
+        const float h = smooth * c_p;
+        const float e = (h + b_p) / denom;
+
+        const float result = c_p - e;
+
+        // ReLU
+        F[i] = (result > 0.0f) ? result : 0.0f;
+    }
 }
 
 // -------------------------------------------------------------------------

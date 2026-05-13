@@ -35,8 +35,12 @@ int main() {
     std::uint32_t seed = 12345u;
 
 #if GEOMETRIC_MEAN
-    std::vector<double> baseline_speedups;
-    baseline_speedups.reserve(10);
+    std::vector<std::chrono::nanoseconds> gm_naive_times;
+    std::vector<std::chrono::nanoseconds> gm_stu_times;
+    std::vector<bench_t> gm_benchmarks;
+    gm_naive_times.reserve(10);
+    gm_stu_times.reserve(10);
+    gm_benchmarks.reserve(10);
     bool gm_enable = true;
 #endif
 
@@ -103,7 +107,9 @@ int main() {
         std::cout << std::setprecision(6);
 
 #if GEOMETRIC_MEAN
-        baseline_speedups.push_back(baseline_speedup);
+        gm_naive_times.push_back(naive_time);
+        gm_stu_times.push_back(stu_time);
+        gm_benchmarks.push_back(bench);
 #endif
     };
 
@@ -114,26 +120,26 @@ int main() {
                   << black_args_ref.spot_price.size() << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // blackscholes_args black_args_stu;
-        // initialize_blackscholes(black_args_stu, 81920, seed);
-        // run_benchmark({"Black-Scholes",
-        //                stu_BlkSchls_wrapper,
-        //                naive_BlkSchls_wrapper,
-        //                BlkSchls_check,
-        //                &black_args_stu,
-        //                &black_args_ref,
-        //                BASELINE_BLACKSCHOLES,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_BLACKSCHOLES});
-
-        // TODO: Comment this block when the student implementation exists:
+        blackscholes_args black_args_stu;
+        initialize_blackscholes(black_args_stu, 81920, seed);
         run_benchmark({"Black-Scholes",
-                       nullptr,
+                       stu_BlkSchls_wrapper,
                        naive_BlkSchls_wrapper,
                        BlkSchls_check,
-                       nullptr,
+                       &black_args_stu,
                        &black_args_ref,
                        BASELINE_BLACKSCHOLES,
                        NAIVE_SPEEDUP_LOWER_BOUND_BLACKSCHOLES});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Black-Scholes",
+        //                nullptr,
+        //                naive_BlkSchls_wrapper,
+        //                BlkSchls_check,
+        //                nullptr,
+        //                &black_args_ref,
+        //                BASELINE_BLACKSCHOLES,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_BLACKSCHOLES});
     }
 
     {
@@ -144,84 +150,84 @@ int main() {
                   << ", nnz=" << sparse_args_ref.csr.values.size() << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // sparse_spmm_args sparse_args_stu;
-        // initialize_spmm(sparse_args_stu, 512, 512, -1, {}, seed);
-        // run_benchmark({"Sparse SpMM",
-        //                stu_sparse_spmm_wrapper,
-        //                naive_sparse_spmm_wrapper,
-        //                sparse_spmm_check,
-        //                &sparse_args_stu,
-        //                &sparse_args_ref,
-        //                BASELINE_SPARSE_SPMM,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_SPARSE_SPMM});
-
-        // TODO: Comment this block when the student implementation exists:
+        sparse_spmm_args sparse_args_stu;
+        initialize_spmm(sparse_args_stu, 512, 512, -1, {}, seed);
         run_benchmark({"Sparse SpMM",
-                       nullptr,
+                       stu_sparse_spmm_wrapper,
                        naive_sparse_spmm_wrapper,
                        sparse_spmm_check,
-                       nullptr,
+                       &sparse_args_stu,
                        &sparse_args_ref,
                        BASELINE_SPARSE_SPMM,
                        NAIVE_SPEEDUP_LOWER_BOUND_SPARSE_SPMM});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Sparse SpMM",
+        //                nullptr,
+        //                naive_sparse_spmm_wrapper,
+        //                sparse_spmm_check,
+        //                nullptr,
+        //                &sparse_args_ref,
+        //                BASELINE_SPARSE_SPMM,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_SPARSE_SPMM});
     }
 
     {
         constexpr size_t relu_size = 1024000;
         relu_args relu_args_ref;
         initialize_relu(&relu_args_ref, relu_size, seed);
-        std::println("ReLU: vector length={}", relu_size);
+        std::cout << "ReLU: vector length=" << relu_size << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // relu_args relu_args_stu;
-        // initialize_relu(&relu_args_stu, relu_size, seed);
-        // run_benchmark({"ReLU",
-        //                stu_relu_wrapper,
-        //                naive_relu_wrapper,
-        //                relu_check,
-        //                &relu_args_stu,
-        //                &relu_args_ref,
-        //                BASELINE_RELU,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_RELU});
-
-        // TODO: Comment this block when the student implementation exists:
+        relu_args relu_args_stu;
+        initialize_relu(&relu_args_stu, relu_size, seed);
         run_benchmark({"ReLU",
-                       nullptr,
+                       stu_relu_wrapper,
                        naive_relu_wrapper,
                        relu_check,
-                       nullptr,
+                       &relu_args_stu,
                        &relu_args_ref,
                        BASELINE_RELU,
                        NAIVE_SPEEDUP_LOWER_BOUND_RELU});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"ReLU",
+        //                nullptr,
+        //                naive_relu_wrapper,
+        //                relu_check,
+        //                nullptr,
+        //                &relu_args_ref,
+        //                BASELINE_RELU,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_RELU});
     }
 
     {
         constexpr size_t bitwise_size = 1024000;
         bitwise_args bitwise_args_ref;
         initialize_bitwise(&bitwise_args_ref, bitwise_size, seed);
-        std::println("Bitwise: vector length={}", bitwise_size);
+        std::cout << "Bitwise: vector length=" << bitwise_size << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // bitwise_args bitwise_args_stu;
-        // initialize_bitwise(&bitwise_args_stu, bitwise_size, seed);
-        // run_benchmark({"Bitwise",
-        //                stu_bitwise_wrapper,
-        //                naive_bitwise_wrapper,
-        //                bitwise_check,
-        //                &bitwise_args_stu,
-        //                &bitwise_args_ref,
-        //                BASELINE_BITWISE,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_BITWISE});
-
-        // TODO: Comment this block when the student implementation exists:
+        bitwise_args bitwise_args_stu;
+        initialize_bitwise(&bitwise_args_stu, bitwise_size, seed);
         run_benchmark({"Bitwise",
-                       nullptr,
+                       stu_bitwise_wrapper,
                        naive_bitwise_wrapper,
                        bitwise_check,
-                       nullptr,
+                       &bitwise_args_stu,
                        &bitwise_args_ref,
                        BASELINE_BITWISE,
                        NAIVE_SPEEDUP_LOWER_BOUND_BITWISE});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Bitwise",
+        //                nullptr,
+        //                naive_bitwise_wrapper,
+        //                bitwise_check,
+        //                nullptr,
+        //                &bitwise_args_ref,
+        //                BASELINE_BITWISE,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_BITWISE});
     }
 
     {
@@ -230,26 +236,26 @@ int main() {
         std::cout << "MatMul: n=" << matmul_args_ref.n << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // matmul_args matmul_args_stu;
-        // initialize_matmul(matmul_args_stu, 512, seed);
-        // run_benchmark({"MatMul",
-        //                stu_matmul_wrapper,
-        //                naive_matmul_wrapper,
-        //                matmul_check,
-        //                &matmul_args_stu,
-        //                &matmul_args_ref,
-        //                BASELINE_MATMUL,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_MATMUL});
-
-        // TODO: Comment this block when the student implementation exists:
+        matmul_args matmul_args_stu;
+        initialize_matmul(matmul_args_stu, 512, seed);
         run_benchmark({"MatMul",
-                       nullptr,
+                       stu_matmul_wrapper,
                        naive_matmul_wrapper,
                        matmul_check,
-                       nullptr,
+                       &matmul_args_stu,
                        &matmul_args_ref,
                        BASELINE_MATMUL,
                        NAIVE_SPEEDUP_LOWER_BOUND_MATMUL});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"MatMul",
+        //                nullptr,
+        //                naive_matmul_wrapper,
+        //                matmul_check,
+        //                nullptr,
+        //                &matmul_args_ref,
+        //                BASELINE_MATMUL,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_MATMUL});
     }
 
     {
@@ -324,26 +330,26 @@ int main() {
                   << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // grff_args grff_args_stu;
-        // initialize_grff(&grff_args_stu, grff_size, seed);
-        // run_benchmark({"GRFF",
-        //                stu_grff_wrapper,
-        //                naive_grff_wrapper,
-        //                grff_check,
-        //                &grff_args_stu,
-        //                &grff_args_ref,
-        //                BASELINE_GRFF,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_GRFF});
-
-        // TODO: Comment this block when the student implementation exists:
+        grff_args grff_args_stu;
+        initialize_grff(&grff_args_stu, grff_size, seed);
         run_benchmark({"GRFF",
-                       nullptr,
+                       stu_grff_wrapper,
                        naive_grff_wrapper,
                        grff_check,
-                       nullptr,
+                       &grff_args_stu,
                        &grff_args_ref,
                        BASELINE_GRFF,
                        NAIVE_SPEEDUP_LOWER_BOUND_GRFF});
+
+        // TODO: Comment this block when the student implementation exists:
+    //     run_benchmark({"GRFF",
+    //                    nullptr,
+    //                    naive_grff_wrapper,
+    //                    grff_check,
+    //                    nullptr,
+    //                    &grff_args_ref,
+    //                    BASELINE_GRFF,
+    //                    NAIVE_SPEEDUP_LOWER_BOUND_GRFF});
     }
 
     {
@@ -355,26 +361,26 @@ int main() {
                   << image_args_ref.height << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // image_proc_args image_args_stu;
-        // initialize_image_proc(&image_args_stu, image_width, image_height, seed);
-        // run_benchmark({"Image Proc",
-        //                stu_image_proc_wrapper,
-        //                naive_image_proc_wrapper,
-        //                image_proc_check,
-        //                &image_args_stu,
-        //                &image_args_ref,
-        //                BASELINE_IMAGE_PROC,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_IMAGE_PROC});
-
-        // TODO: Comment this block when the student implementation exists:
+        image_proc_args image_args_stu;
+        initialize_image_proc(&image_args_stu, image_width, image_height, seed);
         run_benchmark({"Image Proc",
-                       nullptr,
+                       stu_image_proc_wrapper,
                        naive_image_proc_wrapper,
                        image_proc_check,
-                       nullptr,
+                       &image_args_stu,
                        &image_args_ref,
                        BASELINE_IMAGE_PROC,
                        NAIVE_SPEEDUP_LOWER_BOUND_IMAGE_PROC});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Image Proc",
+        //                nullptr,
+        //                naive_image_proc_wrapper,
+        //                image_proc_check,
+        //                nullptr,
+        //                &image_args_ref,
+        //                BASELINE_IMAGE_PROC,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_IMAGE_PROC});
     }
 
     {
@@ -413,13 +419,13 @@ int main() {
     }
 
 #if GEOMETRIC_MEAN
-    if (gm_enable && !baseline_speedups.empty()) {
-        const double geometric_mean_speedup =
-            calculate_geometric_mean_speedup(baseline_speedups);
-        std::println("\nGeometric mean speedup: {:.3f}x",
-                     geometric_mean_speedup);
+    if (gm_enable && !gm_benchmarks.empty()) {
+        const double geometric_mean_speedup = calculate_geometric_mean_speedup(
+            gm_naive_times, gm_stu_times, gm_benchmarks);
+        std::cout << "\nGeometric mean speedup: " << geometric_mean_speedup << "x"
+                  << std::endl;
     } else {
-        std::println("\nGeometric mean speedup: N/A");
+        std::cout << "\nGeometric mean speedup: N/A" << std::endl;
     }
 #endif
 

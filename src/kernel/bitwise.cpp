@@ -55,9 +55,98 @@ void naive_bitwise(std::span<std::int8_t> result,
 }
 
 // TODO: Optimize the bitwise function
-void stu_bitwise(std::span<std::int8_t> result, std::span<const std::int8_t> a,
+void stu_bitwise(std::span<std::int8_t> result,
+                 std::span<const std::int8_t> a,
                  std::span<const std::int8_t> b) {
-    // Implement your version...
+    constexpr std::uint8_t kMaskLo = 0x5A;
+    constexpr std::uint8_t kMaskHi = 0xC3;
+
+    constexpr std::uint64_t maskLo64 =
+        0x5A5A5A5A5A5A5A5AULL;
+
+    constexpr std::uint64_t maskHi64 =
+        0xC3C3C3C3C3C3C3C3ULL;
+
+    const std::size_t n =
+        std::min({result.size(), a.size(), b.size()});
+
+    if (n == 0) {
+        return;
+    }
+
+    const auto* pa =
+        reinterpret_cast<const std::uint8_t*>(a.data());
+
+    const auto* pb =
+        reinterpret_cast<const std::uint8_t*>(b.data());
+
+    auto* pr =
+        reinterpret_cast<std::uint8_t*>(result.data());
+
+    constexpr std::size_t chunk = sizeof(std::uint64_t);
+
+    const std::size_t limit =
+        (n / chunk) * chunk;
+
+    // Process 8 bytes at a time
+    for (std::size_t i = 0; i < limit; i += chunk) {
+
+        std::uint64_t va;
+        std::uint64_t vb;
+
+        std::memcpy(&va, pa + i, chunk);
+        std::memcpy(&vb, pb + i, chunk);
+
+        const std::uint64_t shared = va & vb;
+        const std::uint64_t either = va | vb;
+        const std::uint64_t diff = va ^ vb;
+
+        const std::uint64_t mixed0 =
+            (diff & maskLo64) |
+            (~shared & ~maskLo64);
+
+        const std::uint64_t mixed1 =
+            ((either ^ maskHi64) &
+            (shared | ~maskHi64)) ^ diff;
+
+        const std::uint64_t res =
+            mixed0 ^ mixed1;
+
+        std::memcpy(pr + i, &res, chunk);
+    }
+
+    // Remaining bytes
+    for (std::size_t i = limit; i < n; ++i) {
+
+        const auto ua =
+            static_cast<std::uint8_t>(pa[i]);
+
+        const auto ub =
+            static_cast<std::uint8_t>(pb[i]);
+
+        const auto shared =
+            static_cast<std::uint8_t>(ua & ub);
+
+        const auto either =
+            static_cast<std::uint8_t>(ua | ub);
+
+        const auto diff =
+            static_cast<std::uint8_t>(ua ^ ub);
+
+        const auto mixed0 =
+            static_cast<std::uint8_t>(
+                (diff & kMaskLo) |
+                (~shared & ~kMaskLo));
+
+        const auto mixed1 =
+            static_cast<std::uint8_t>(
+                ((either ^ kMaskHi) &
+                (shared | ~kMaskHi)) ^ diff);
+
+        pr[i] =
+            static_cast<std::uint8_t>(
+                mixed0 ^ mixed1);
+    }
 }
 
 void naive_bitwise_wrapper(void *ctx) {

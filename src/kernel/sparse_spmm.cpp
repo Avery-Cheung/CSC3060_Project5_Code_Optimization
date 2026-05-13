@@ -216,6 +216,93 @@ void naive_sparse_spmm_wrapper(void *ctx) {
     auto &args = *static_cast<sparse_spmm_args *>(ctx);
     csr_spmm(args.csr, args.dense_t, args.out);
 }
+// 优化版 CSR SpMM
+// 目标：计算 C = A * B，其中
+// A: CSR sparse matrix (rows x cols)
+// dense_t: B 的转置，形状为 (dense_cols x cols)
+// out: C，形状为 (rows x dense_cols)
+
+void stu_csr_spmm(const CSRMatrix &csr,
+                  const std::vector<float> &dense_t,
+                  std::vector<float> &out) {
+    if (!validate_csr(csr)) {
+        throw std::invalid_argument("stu_csr_spmm: invalid CSR matrix.");
+    }
+
+    const size_t rows = csr.rows;
+    const size_t cols = csr.cols;
+
+    if (rows == 0 || cols == 0) {
+        if (!dense_t.empty() || !out.empty()) {
+            throw std::invalid_argument(
+                "stu_csr_spmm: non-empty dense buffers for empty CSR shape.");
+        }
+        return;
+    }
+
+    if (dense_t.size() % cols != 0) {
+        throw std::invalid_argument(
+            "stu_csr_spmm: dense_t.size() must be a multiple of csr.cols.");
+    }
+
+    const size_t dense_cols = dense_t.size() / cols;
+
+    if (dense_cols == 0) {
+        throw std::invalid_argument(
+            "stu_csr_spmm: dense_cols must be positive.");
+    }
+
+    if (out.size() != rows * dense_cols) {
+        throw std::invalid_argument("stu_csr_spmm: out size mismatch.");
+    }
+
+    // 清零输出（因为采用 += 累加）
+    std::fill(out.begin(), out.end(), 0.0f);
+
+    const int *row_ptr = csr.row_ptr.data();
+    const int *col_idx = csr.col_idx.data();
+    const float *values = csr.values.data();
+    const float *B = dense_t.data();
+    float *C = out.data();
+
+    // 主循环：按 sparse row 遍历
+    for (size_t r = 0; r < rows; ++r) {
+        float *out_row = C + r * dense_cols;
+
+        const int start = row_ptr[r];
+        const int end   = row_ptr[r + 1];
+
+        // 遍历该行每个非零元素
+        for (int p = start; p < end; ++p) {
+            const int c = col_idx[p];
+            const float a = values[p];
+
+            // dense_t 中第 c 列在转置后对应：
+            // B_t[n][c] = dense_t[n * cols + c]
+            const float *b_col = B + c;
+
+            // 向量化友好的连续累加
+            size_t n = 0;
+
+            // 手工展开 8 次
+            for (; n + 7 < dense_cols; n += 8) {
+                out_row[n + 0] += a * b_col[(n + 0) * cols];
+                out_row[n + 1] += a * b_col[(n + 1) * cols];
+                out_row[n + 2] += a * b_col[(n + 2) * cols];
+                out_row[n + 3] += a * b_col[(n + 3) * cols];
+                out_row[n + 4] += a * b_col[(n + 4) * cols];
+                out_row[n + 5] += a * b_col[(n + 5) * cols];
+                out_row[n + 6] += a * b_col[(n + 6) * cols];
+                out_row[n + 7] += a * b_col[(n + 7) * cols];
+            }
+
+            // 剩余部分
+            for (; n < dense_cols; ++n) {
+                out_row[n] += a * b_col[n * cols];
+            }
+        }
+    }
+}
 
 // TODO: Implement your version (e.g. stu_csr_spmm), and call it in stu_sparse_spmm_wrapper
 void stu_sparse_spmm_wrapper(void *ctx) {

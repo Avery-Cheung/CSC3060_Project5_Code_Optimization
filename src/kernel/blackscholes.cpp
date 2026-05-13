@@ -115,17 +115,92 @@ void naive_BlkSchls(std::vector<float> &CallOptionPrice,
                            time[i]);
     }
 }
+static inline void fast_CNDF(float x, float& out) {
+    const float ax = std::fabs(x);
 
-void stu_BlkSchls(std::vector<float> &CallOptionPrice,
-                  std::vector<float> &PutOptionPrice,
-                  const std::vector<float> &spotPrice,
-                  const std::vector<float> &strike,
-                  const std::vector<float> &rate,
-                  const std::vector<float> &volatility,
-                  const std::vector<float> &time) {
-    // TODO:
-    // Implement your version for BlkSchls here, then 
-    // call it at stu_BlkSchls_wrapper()...
+    const float xNPrimeofX =
+        std::exp(-0.5f * ax * ax) * inv_sqrt_2xPI;
+
+    const float k =
+        1.0f / (1.0f + p_val * ax);
+
+    const float k2 = k * k;
+    const float k3 = k2 * k;
+    const float k4 = k3 * k;
+    const float k5 = k4 * k;
+
+    float local =
+        k * coefficient_a1 +
+        k2 * coefficient_a2 +
+        k3 * coefficient_a3 +
+        k4 * coefficient_a4 +
+        k5 * coefficient_a5;
+
+    local = 1.0f - local * xNPrimeofX;
+
+    out = (x < 0.0f)
+        ? (1.0f - local)
+        : local;
+}
+void stu_BlkSchls(
+    std::vector<float>& CallOptionPrice,
+    std::vector<float>& PutOptionPrice,
+    const std::vector<float>& spotPrice,
+    const std::vector<float>& strike,
+    const std::vector<float>& rate,
+    const std::vector<float>& volatility,
+    const std::vector<float>& time) {
+
+    const size_t n = spotPrice.size();
+
+    const float* s = spotPrice.data();
+    const float* k = strike.data();
+    const float* r = rate.data();
+    const float* v = volatility.data();
+    const float* t = time.data();
+
+    float* call = CallOptionPrice.data();
+    float* put = PutOptionPrice.data();
+
+    #pragma clang loop vectorize(enable)
+    for (size_t i = 0; i < n; ++i) {
+
+        const float sqrtT =
+            std::sqrt(t[i]);
+
+        const float logTerm =
+            std::log(s[i] / k[i]);
+
+        const float powerTerm =
+            0.5f * v[i] * v[i];
+
+        const float den =
+            v[i] * sqrtT;
+
+        const float d1 =
+            ((r[i] + powerTerm) * t[i] + logTerm)
+            / den;
+
+        const float d2 =
+            d1 - den;
+
+        float Nd1;
+        float Nd2;
+
+        fast_CNDF(d1, Nd1);
+        fast_CNDF(d2, Nd2);
+
+        const float futureValue =
+            k[i] * std::exp(-r[i] * t[i]);
+
+        call[i] =
+            s[i] * Nd1 -
+            futureValue * Nd2;
+
+        put[i] =
+            futureValue * (1.0f - Nd2) -
+            s[i] * (1.0f - Nd1);
+    }
 }
 
 void naive_BlkSchls_wrapper(void *ctx) {

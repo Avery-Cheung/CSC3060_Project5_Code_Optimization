@@ -162,7 +162,74 @@ void naive_image_proc(image_proc_args& args) {
 // TODO: Student Implementation
 // -------------------------------------------------------------------------
 void stu_image_proc(image_proc_args& args) {
+    const size_t w = args.width;
+    const size_t h = args.height;
+    const size_t n = w * h;
 
+    float* __restrict__ out = args.output.data();
+    const float* __restrict__ r = args.r_channel.data();
+    const float* __restrict__ g = args.g_channel.data();
+    const float* __restrict__ b = args.b_channel.data();
+
+    const float threshold = args.threshold;
+
+    // Flatten the nested loops into a single linear loop.
+    // This removes repeated y*w multiplications and makes the
+    // memory access pattern simpler for the compiler to optimize.
+    for (size_t i = 0; i < n; ++i) {
+
+        // -----------------------------------------------------------------
+        // Stage 1: Color correction
+        // -----------------------------------------------------------------
+        // We explicitly store the corrected RGB values because they are reused
+        // later by the mask function.
+        const float r_val = color_correct(r[i]);
+        const float g_val = color_correct(g[i]);
+        const float b_val = color_correct(b[i]);
+
+        // -----------------------------------------------------------------
+        // Stage 2: Luminance extraction
+        // -----------------------------------------------------------------
+        const float gray = compute_gray(r_val, g_val, b_val);
+
+        // -----------------------------------------------------------------
+        // Stage 3: Contrast enhancement
+        // -----------------------------------------------------------------
+        const float gray_enhanced = enhance_contrast(gray);
+
+        // -----------------------------------------------------------------
+        // Stage 4: HDR compression
+        // -----------------------------------------------------------------
+        const float compressed = hdr_compress(gray_enhanced);
+
+        // -----------------------------------------------------------------
+        // Stage 5: Masking
+        // -----------------------------------------------------------------
+        const float mask =
+            complex_mask_logic(compressed,
+                               r_val,
+                               g_val,
+                               b_val,
+                               threshold);
+
+        // -----------------------------------------------------------------
+        // Stage 6: Importance weighting
+        // -----------------------------------------------------------------
+        const float weight = importance_weight(mask);
+
+        // -----------------------------------------------------------------
+        // Final output
+        // -----------------------------------------------------------------
+        const float result = compressed * weight;
+
+        // Equivalent to std::clamp(result, 0.0f, 1.0f), but avoids
+        // the function call overhead and is easier for the compiler
+        // to inline/vectorize.
+        out[i] =
+            (result < 0.0f) ? 0.0f :
+            (result > 1.0f) ? 1.0f :
+            result;
+    }
 }
 
 
