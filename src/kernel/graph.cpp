@@ -100,29 +100,33 @@ void convert_graph_to_csr(GraphCSR& csr, const Graph& graph) {
 }
 
 void stu_graph(std::uint64_t& out, const GraphCSR& graph_csr) {
-    std::uint64_t checksum = 0;
-    const int n = graph_csr.n;
-    const int* offsets = graph_csr.offsets.data();
     const int* to = graph_csr.to.data();
+    const std::size_t edge_count = graph_csr.to.size();
+    const int* end = to + edge_count;
 
-    for (int u = 0; u < n; ++u) {
-        const int* cur = to + offsets[u];
-        const int* end = to + offsets[u + 1];
+    std::uint64_t sum0 = 0;
+    std::uint64_t sum1 = 0;
+    std::uint64_t sum2 = 0;
+    std::uint64_t sum3 = 0;
 
-        while (cur + 4 <= end) {
-            checksum += static_cast<std::uint64_t>(cur[0]);
-            checksum += static_cast<std::uint64_t>(cur[1]);
-            checksum += static_cast<std::uint64_t>(cur[2]);
-            checksum += static_cast<std::uint64_t>(cur[3]);
-            cur += 4;
-        }
-        while (cur < end) {
-            checksum += static_cast<std::uint64_t>(*cur);
-            ++cur;
-        }
+    while (to + 8 <= end) {
+        sum0 += static_cast<std::uint64_t>(to[0]);
+        sum1 += static_cast<std::uint64_t>(to[1]);
+        sum2 += static_cast<std::uint64_t>(to[2]);
+        sum3 += static_cast<std::uint64_t>(to[3]);
+        sum0 += static_cast<std::uint64_t>(to[4]);
+        sum1 += static_cast<std::uint64_t>(to[5]);
+        sum2 += static_cast<std::uint64_t>(to[6]);
+        sum3 += static_cast<std::uint64_t>(to[7]);
+        to += 8;
     }
 
-    out = checksum;
+    while (to < end) {
+        sum0 += static_cast<std::uint64_t>(*to);
+        ++to;
+    }
+
+    out = sum0 + sum1 + sum2 + sum3;
 }
 
 void naive_graph_wrapper(void* ctx) {
