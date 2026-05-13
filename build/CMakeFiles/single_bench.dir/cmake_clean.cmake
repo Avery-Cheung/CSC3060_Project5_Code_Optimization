@@ -1,7 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/single_bench.dir/src/main/single_bench.cpp.o"
   "CMakeFiles/single_bench.dir/src/main/single_bench.cpp.o.d"
-  "single_bench"
+  "libsingle_bench.dll.a"
+  "single_bench.exe"
   "single_bench.pdb"
 )
 
