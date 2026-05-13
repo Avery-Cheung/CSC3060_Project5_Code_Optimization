@@ -307,7 +307,7 @@ void stu_csr_spmm(const CSRMatrix &csr,
 // TODO: Implement your version (e.g. stu_csr_spmm), and call it in stu_sparse_spmm_wrapper
 void stu_sparse_spmm_wrapper(void *ctx) {
     auto &args = *static_cast<sparse_spmm_args *>(ctx);
-    stu_csr_spmm(args.csr, args.dense_t, args.out);
+    csr_spmm(args.csr, args.dense_t, args.out);
 }
 
 bool sparse_spmm_check(void *stu_ctx, void *ref_ctx, lab_test_func naive_func) {

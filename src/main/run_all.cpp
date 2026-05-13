@@ -265,26 +265,26 @@ int main() {
                   << ", trace_length=" << trace_args_ref.trace.size() << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // trace_replay_args trace_args_stu;
-        // initialize_trace_replay(trace_args_stu, 1 << 16, 1 << 20, seed);
-        // run_benchmark({"Trace Replay",
-        //                stu_trace_replay_wrapper,
-        //                naive_trace_replay_wrapper,
-        //                trace_replay_check,
-        //                &trace_args_stu,
-        //                &trace_args_ref,
-        //                BASELINE_TRACE_REPLAY,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_TRACE_REPLAY});
-
-        // TODO: Comment this block when the student implementation exists:
+        trace_replay_args trace_args_stu;
+        initialize_trace_replay(trace_args_stu, 1 << 16, 1 << 20, seed);
         run_benchmark({"Trace Replay",
-                       nullptr,
+                       stu_trace_replay_wrapper,
                        naive_trace_replay_wrapper,
                        trace_replay_check,
-                       nullptr,
+                       &trace_args_stu,
                        &trace_args_ref,
                        BASELINE_TRACE_REPLAY,
                        NAIVE_SPEEDUP_LOWER_BOUND_TRACE_REPLAY});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Trace Replay",
+        //                nullptr,
+        //                naive_trace_replay_wrapper,
+        //                trace_replay_check,
+        //                nullptr,
+        //                &trace_args_ref,
+        //                BASELINE_TRACE_REPLAY,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_TRACE_REPLAY});
     }
 
     {
@@ -299,27 +299,27 @@ int main() {
                   << ", avg_degree=" << graph_avg_degree << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // graph_args graph_args_stu;
-        // initialize_graph(&graph_args_stu, graph_node_count, graph_avg_degree, seed);
-        // convert_graph_to_csr(graph_args_stu.graph_csr, graph_args_stu.graph);
-        // run_benchmark({"Graph",
-        //                stu_graph_wrapper,
-        //                naive_graph_wrapper,
-        //                graph_check,
-        //                &graph_args_stu,
-        //                &graph_args_ref,
-        //                BASELINE_GRAPH,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_GRAPH});
-
-        // TODO: Comment this block when the student implementation exists:
+        graph_args graph_args_stu;
+        initialize_graph(&graph_args_stu, graph_node_count, graph_avg_degree, seed);
+        convert_graph_to_csr(graph_args_stu.graph_csr, graph_args_stu.graph);
         run_benchmark({"Graph",
-                       nullptr,
+                       stu_graph_wrapper,
                        naive_graph_wrapper,
                        graph_check,
-                       nullptr,
+                       &graph_args_stu,
                        &graph_args_ref,
                        BASELINE_GRAPH,
                        NAIVE_SPEEDUP_LOWER_BOUND_GRAPH});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Graph",
+        //                nullptr,
+        //                naive_graph_wrapper,
+        //                graph_check,
+        //                nullptr,
+        //                &graph_args_ref,
+        //                BASELINE_GRAPH,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_GRAPH});
     }
 
     {
@@ -394,28 +394,28 @@ int main() {
         std::cout << "Filter Gradient: " << height << " x " << width << '\n';
 
         // TODO: Uncomment this block when the student implementation exists.
-        // filter_gradient_args filter_gradient_args_stu;
-        // initialize_filter_gradient(&filter_gradient_args_stu, width, height, seed);
-        // convert_soa_to_aos(filter_gradient_args_stu.aos_data,
-        //                    filter_gradient_args_stu.data);
-        // run_benchmark({"Filter Gradient",
-        //                stu_filter_gradient_wrapper,
-        //                naive_filter_gradient_wrapper,
-        //                filter_gradient_check,
-        //                &filter_gradient_args_stu,
-        //                &filter_gradient_args_ref,
-        //                BASELINE_FILTER_GRADIENT,
-        //                NAIVE_SPEEDUP_LOWER_BOUND_FILTER_GRADIENT});
-
-        // TODO: Comment this block when the student implementation exists:
+        filter_gradient_args filter_gradient_args_stu;
+        initialize_filter_gradient(&filter_gradient_args_stu, width, height, seed);
+        convert_soa_to_aos(filter_gradient_args_stu.aos_data,
+                           filter_gradient_args_stu.data);
         run_benchmark({"Filter Gradient",
-                       nullptr,
+                       stu_filter_gradient_wrapper,
                        naive_filter_gradient_wrapper,
                        filter_gradient_check,
-                       nullptr,
+                       &filter_gradient_args_stu,
                        &filter_gradient_args_ref,
                        BASELINE_FILTER_GRADIENT,
                        NAIVE_SPEEDUP_LOWER_BOUND_FILTER_GRADIENT});
+
+        // TODO: Comment this block when the student implementation exists:
+        // run_benchmark({"Filter Gradient",
+        //                nullptr,
+        //                naive_filter_gradient_wrapper,
+        //                filter_gradient_check,
+        //                nullptr,
+        //                &filter_gradient_args_ref,
+        //                BASELINE_FILTER_GRADIENT,
+        //                NAIVE_SPEEDUP_LOWER_BOUND_FILTER_GRADIENT});
     }
 
 #if GEOMETRIC_MEAN

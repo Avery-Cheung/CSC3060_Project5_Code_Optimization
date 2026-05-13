@@ -22,6 +22,7 @@ struct trace_replay_args {
     uint64_t out = 0;
     std::vector<RequestRecord> records;
     std::vector<uint32_t> trace;
+    std::vector<uint64_t> costs;  // Precomputed costs for each record
     // TODO: You may want to add new params at the end...
 };
 
@@ -33,10 +34,11 @@ void initialize_trace_replay(trace_replay_args& args,
 void naive_trace_replay(uint64_t& out,
                         const std::vector<RequestRecord>& records,
                         const std::vector<uint32_t>& trace);
-// TODO: Implement your version, and call it in stu_trace_replay_wrapper
+// Optimized version with precomputed costs
 void stu_trace_replay(uint64_t& out,
                       const std::vector<RequestRecord>& records,
-                      const std::vector<uint32_t>& trace);
+                      const std::vector<uint32_t>& trace,
+                      const std::vector<uint64_t>& costs);
 
 void naive_trace_replay_wrapper(void* ctx);
 void stu_trace_replay_wrapper(void* ctx);

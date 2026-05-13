@@ -24,8 +24,16 @@ struct Graph {
     Node* nodes;
 };
 
+// CSR (Compressed Sparse Row) format for better cache locality
+struct GraphCSR {
+    int n;  // number of nodes
+    std::vector<int> offsets;  // offsets[i] = start index in to array for node i
+    std::vector<int> to;       // all destination nodes
+};
+
 struct graph_args {
     Graph graph;
+    GraphCSR graph_csr;  // CSR representation for optimized access
     std::vector<Node> nodes;
     std::vector<Edge> edge_storage;
     std::uint64_t out;
@@ -37,10 +45,12 @@ struct graph_args {
 };
 
 void naive_graph(std::uint64_t& out, const Graph& graph);
-// TODO: You may need to add a function to convert data structure (not 
-// included in time measurement), then implement your version in 
-// stu_graph, whch is called by stu_graph_wrapper.
-void stu_graph(std::uint64_t& out, const Graph& graph);
+
+// Convert graph from adjacency list to CSR format (not included in timing)
+void convert_graph_to_csr(GraphCSR& csr, const Graph& graph);
+
+// Optimized version using CSR format
+void stu_graph(std::uint64_t& out, const GraphCSR& graph_csr);
 
 void naive_graph_wrapper(void* ctx);
 void stu_graph_wrapper(void* ctx);

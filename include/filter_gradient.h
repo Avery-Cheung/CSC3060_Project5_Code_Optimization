@@ -10,6 +10,11 @@
 inline constexpr std::chrono::nanoseconds BASELINE_FILTER_GRADIENT{25000000};
 inline constexpr double NAIVE_SPEEDUP_LOWER_BOUND_FILTER_GRADIENT{1.45};
 
+// Optimized pixel structure for better cache locality
+struct Pixel {
+    float a, b, c, d, e, f, g, h, i;
+};
+
 struct data_struct {
     std::vector<float> a;
     std::vector<float> b;
@@ -23,7 +28,8 @@ struct data_struct {
 };
 
 struct filter_gradient_args {
-    data_struct data; 
+    data_struct data;
+    std::vector<Pixel> aos_data;  // Array of Structures for better cache locality
     // TODO: You may want to add new params at the end...
 
     std::size_t width;
@@ -35,13 +41,14 @@ struct filter_gradient_args {
         : width(0), height(0), out(0.0f), epsilon(epsilon_in) {}
 };
 
-// TODO: You may need to add a function to convert data structure (not 
-// included in time measurement), then implement your version in 
-// stu_filter_gradient, whch is called by stu_filter_gradient_wrapper.
+// Convert from SoA (Structure of Arrays) to AoS (Array of Structures)
+// This is called outside of the timing loop
+void convert_soa_to_aos(std::vector<Pixel>& aos, const data_struct& data);
 
 void naive_filter_gradient(float& out, const data_struct& data,
                    std::size_t width, std::size_t height);
-void stu_filter_gradient(float& out, const data_struct& data,
+// Optimized version using AoS memory layout
+void stu_filter_gradient(float& out, const std::vector<Pixel>& aos,
                    std::size_t width, std::size_t height);
 
 void naive_filter_gradient_wrapper(void* ctx);

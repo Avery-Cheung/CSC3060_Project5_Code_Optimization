@@ -32,6 +32,7 @@ void initialize_trace_replay(trace_replay_args& args,
     args.out = 0;
     args.records.resize(record_count);
     args.trace.resize(trace_count);
+    args.costs.resize(record_count);  // Initialize costs vector
 
     uint32_t current = seed;
 
@@ -45,6 +46,14 @@ void initialize_trace_replay(trace_replay_args& args,
         args.records[i].retry_penalty = 1u + ((r0 >> 8) & 31u);
         args.records[i].miss_penalty = 1u + (r1 & 63u);
         args.records[i].bytes = 64u + ((r1 >> 8) & 511u);
+
+        // Precompute cost for this record
+        uint64_t cost = 0;
+        cost += args.records[i].base_cost;
+        cost += 2ull * args.records[i].retry_penalty;
+        cost += args.records[i].miss_penalty;
+        cost += args.records[i].bytes >> 4;
+        args.costs[i] = cost;
 
         for (int k = 0; k < 24; ++k) {
             args.records[i].padding[k] =
@@ -91,8 +100,16 @@ void naive_trace_replay(uint64_t& out,
 
 void stu_trace_replay(uint64_t& out,
                       const std::vector<RequestRecord>& records,
-                      const std::vector<uint32_t>& trace) {
-    // TODO: Implement your version, and call it in stu_trace_replay_wrapper
+                      const std::vector<uint32_t>& trace,
+                      const std::vector<uint64_t>& costs) {
+    uint64_t total = 0;
+    const uint64_t order_mix = 1315423911ull;
+
+    for (size_t i = 0; i < trace.size(); ++i) {
+        total = total * order_mix + costs[trace[i]];
+    }
+
+    out = total;
 }
 
 void naive_trace_replay_wrapper(void* ctx) {
@@ -102,7 +119,7 @@ void naive_trace_replay_wrapper(void* ctx) {
 
 void stu_trace_replay_wrapper(void* ctx) {
     auto& args = *static_cast<trace_replay_args*>(ctx);
-    stu_trace_replay(args.out, args.records, args.trace);
+    stu_trace_replay(args.out, args.records, args.trace, args.costs);
 }
 
 bool trace_replay_check(void* stu_ctx,

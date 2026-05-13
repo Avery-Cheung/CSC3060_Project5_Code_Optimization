@@ -62,10 +62,53 @@ void naive_graph(std::uint64_t& out, const Graph& graph) {
     out = checksum;
 }
 
-void stu_graph(std::uint64_t& out, const Graph& graph) {
-    // TODO: You may need to add a function to convert data structure (not
-    // included in time measurement), then implement your version in
-    // stu_graph, whch is called by stu_graph_wrapper.
+// Convert from adjacency list to CSR format
+void convert_graph_to_csr(GraphCSR& csr, const Graph& graph) {
+    csr.n = graph.n;
+    csr.offsets.resize(graph.n + 1);
+    csr.to.clear();
+
+    // First pass: count edges per node to build offsets
+    std::vector<int> degree(graph.n, 0);
+    for (int u = 0; u < graph.n; ++u) {
+        const Edge* e = graph.nodes[u].edges;
+        while (e) {
+            degree[u]++;
+            e = e->next;
+        }
+    }
+
+    // Build offsets array
+    csr.offsets[0] = 0;
+    for (int u = 0; u < graph.n; ++u) {
+        csr.offsets[u + 1] = csr.offsets[u] + degree[u];
+    }
+
+    // Reserve space for destinations
+    csr.to.resize(csr.offsets[graph.n]);
+
+    // Second pass: fill the to array
+    std::vector<int> curr_offset = csr.offsets;
+    for (int u = 0; u < graph.n; ++u) {
+        const Edge* e = graph.nodes[u].edges;
+        while (e) {
+            csr.to[curr_offset[u]] = e->to;
+            curr_offset[u]++;
+            e = e->next;
+        }
+    }
+}
+
+void stu_graph(std::uint64_t& out, const GraphCSR& graph_csr) {
+    std::uint64_t checksum = 0;
+    for (int u = 0; u < graph_csr.n; ++u) {
+        const int start = graph_csr.offsets[u];
+        const int end = graph_csr.offsets[u + 1];
+        for (int i = start; i < end; ++i) {
+            checksum += static_cast<std::uint64_t>(graph_csr.to[i]);
+        }
+    }
+    out = checksum;
 }
 
 void naive_graph_wrapper(void* ctx) {
@@ -75,7 +118,7 @@ void naive_graph_wrapper(void* ctx) {
 
 void stu_graph_wrapper(void* ctx) {
     auto& args = *static_cast<graph_args*>(ctx);
-    stu_graph(args.out, args.graph);
+    stu_graph(args.out, args.graph_csr);
 }
 
 bool graph_check(void* stu_ctx, void* ref_ctx, lab_test_func naive_func) {
