@@ -220,10 +220,10 @@ void stu_BlkSchls(
         
         // 使用 Put-Call Parity (期权平价公式): Put = Call - Spot + Strike * exp(-rt)
         // 这不仅快，而且在数学上是等价的
-        float p_val = c_val - si + futureValue;
+        float pval = c_val - si + futureValue;
 
         call[i] = c_val;
-        put[i]  = p_val;
+        put[i]  = pval;
     }
 }
 
