@@ -148,66 +148,167 @@ void stu_filter_gradient(float& out, const std::vector<Pixel>& aos,
     double total = 0.0;
 
     for (std::size_t y = 1; y + 1 < H; ++y) {
-        const Pixel* top = base + (y - 1) * W;
-        const Pixel* mid = top + W;
-        const Pixel* bot = mid + W;
+        const Pixel* top_row = base + (y - 1) * W;
+        const Pixel* mid_row = top_row + W;
+        const Pixel* bot_row = mid_row + W;
+        const Pixel* top = top_row + 1;
+        const Pixel* mid = mid_row + 1;
+        const Pixel* bot = bot_row + 1;
+        const Pixel* end = top_row + W - 1;
 
-        for (std::size_t x = 1; x + 1 < W; ++x) {
-            const Pixel& t0 = top[0];
-            const Pixel& t1 = top[1];
-            const Pixel& t2 = top[2];
-            const Pixel& m0 = mid[0];
-            const Pixel& m1 = mid[1];
-            const Pixel& m2 = mid[2];
-            const Pixel& b0 = bot[0];
-            const Pixel& b1 = bot[1];
-            const Pixel& b2 = bot[2];
+        for (; top + 1 < end; top += 2, mid += 2, bot += 2) {
+            const Pixel* t0 = top - 1;
+            const Pixel* t1 = top;
+            const Pixel* t2 = top + 1;
+            const Pixel* m0 = mid - 1;
+            const Pixel* m1 = mid;
+            const Pixel* m2 = mid + 1;
+            const Pixel* b0 = bot - 1;
+            const Pixel* b1 = bot;
+            const Pixel* b2 = bot + 1;
 
-            const float sum_a = t0.a + t1.a + t2.a +
-                                m0.a + m1.a + m2.a +
-                                b0.a + b1.a + b2.a;
-            const float sum_b = t0.b + t1.b + t2.b +
-                                m0.b + m1.b + m2.b +
-                                b0.b + b1.b + b2.b;
-            const float sum_c = t0.c + t1.c + t2.c +
-                                m0.c + m1.c + m2.c +
-                                b0.c + b1.c + b2.c;
+            const float sum_a0 = t0->a + t1->a + t2->a +
+                                 m0->a + m1->a + m2->a +
+                                 b0->a + b1->a + b2->a;
+            const float sum_b0 = t0->b + t1->b + t2->b +
+                                 m0->b + m1->b + m2->b +
+                                 b0->b + b1->b + b2->b;
+            const float sum_c0 = t0->c + t1->c + t2->c +
+                                 m0->c + m1->c + m2->c +
+                                 b0->c + b1->c + b2->c;
+            const float avg_a0 = sum_a0 * inv9;
+            const float avg_b0 = sum_b0 * inv9;
+            const float avg_c0 = sum_c0 * inv9;
+            const float p10 = avg_a0 * avg_b0 + avg_c0;
 
+            const float sobel_dx0 =
+                -t0->d + t2->d
+                -2.0f * m0->d + 2.0f * m2->d
+                -b0->d + b2->d;
+            const float sobel_ex0 =
+                -t0->e + t2->e
+                -2.0f * m0->e + 2.0f * m2->e
+                -b0->e + b2->e;
+            const float sobel_fx0 =
+                -t0->f + t2->f
+                -2.0f * m0->f + 2.0f * m2->f
+                -b0->f + b2->f;
+            const float p20 = sobel_dx0 * sobel_ex0 + sobel_fx0;
+
+            const float sobel_gy0 =
+                -t0->g - 2.0f * t1->g - t2->g
+                + b0->g + 2.0f * b1->g + b2->g;
+            const float sobel_hy0 =
+                -t0->h - 2.0f * t1->h - t2->h
+                + b0->h + 2.0f * b1->h + b2->h;
+            const float sobel_iy0 =
+                -t0->i - 2.0f * t1->i - t2->i
+                + b0->i + 2.0f * b1->i + b2->i;
+            const float p30 = sobel_gy0 * sobel_hy0 + sobel_iy0;
+
+            const Pixel* u0 = top;
+            const Pixel* u1 = top + 1;
+            const Pixel* u2 = top + 2;
+            const Pixel* v0 = mid;
+            const Pixel* v1 = mid + 1;
+            const Pixel* v2 = mid + 2;
+            const Pixel* w0 = bot;
+            const Pixel* w1 = bot + 1;
+            const Pixel* w2 = bot + 2;
+
+            const float sum_a1 = u0->a + u1->a + u2->a +
+                                 v0->a + v1->a + v2->a +
+                                 w0->a + w1->a + w2->a;
+            const float sum_b1 = u0->b + u1->b + u2->b +
+                                 v0->b + v1->b + v2->b +
+                                 w0->b + w1->b + w2->b;
+            const float sum_c1 = u0->c + u1->c + u2->c +
+                                 v0->c + v1->c + v2->c +
+                                 w0->c + w1->c + w2->c;
+            const float avg_a1 = sum_a1 * inv9;
+            const float avg_b1 = sum_b1 * inv9;
+            const float avg_c1 = sum_c1 * inv9;
+            const float p11 = avg_a1 * avg_b1 + avg_c1;
+
+            const float sobel_dx1 =
+                -u0->d + u2->d
+                -2.0f * v0->d + 2.0f * v2->d
+                -w0->d + w2->d;
+            const float sobel_ex1 =
+                -u0->e + u2->e
+                -2.0f * v0->e + 2.0f * v2->e
+                -w0->e + w2->e;
+            const float sobel_fx1 =
+                -u0->f + u2->f
+                -2.0f * v0->f + 2.0f * v2->f
+                -w0->f + w2->f;
+            const float p21 = sobel_dx1 * sobel_ex1 + sobel_fx1;
+
+            const float sobel_gy1 =
+                -u0->g - 2.0f * u1->g - u2->g
+                + w0->g + 2.0f * w1->g + w2->g;
+            const float sobel_hy1 =
+                -u0->h - 2.0f * u1->h - u2->h
+                + w0->h + 2.0f * w1->h + w2->h;
+            const float sobel_iy1 =
+                -u0->i - 2.0f * u1->i - u2->i
+                + w0->i + 2.0f * w1->i + w2->i;
+            const float p31 = sobel_gy1 * sobel_hy1 + sobel_iy1;
+
+            total += p10 + p20 + p30 + p11 + p21 + p31;
+        }
+
+        for (; top < end; ++top, ++mid, ++bot) {
+            const Pixel* t0 = top - 1;
+            const Pixel* t1 = top;
+            const Pixel* t2 = top + 1;
+            const Pixel* m0 = mid - 1;
+            const Pixel* m1 = mid;
+            const Pixel* m2 = mid + 1;
+            const Pixel* b0 = bot - 1;
+            const Pixel* b1 = bot;
+            const Pixel* b2 = bot + 1;
+
+            const float sum_a = t0->a + t1->a + t2->a +
+                                m0->a + m1->a + m2->a +
+                                b0->a + b1->a + b2->a;
+            const float sum_b = t0->b + t1->b + t2->b +
+                                m0->b + m1->b + m2->b +
+                                b0->b + b1->b + b2->b;
+            const float sum_c = t0->c + t1->c + t2->c +
+                                m0->c + m1->c + m2->c +
+                                b0->c + b1->c + b2->c;
             const float avg_a = sum_a * inv9;
             const float avg_b = sum_b * inv9;
             const float avg_c = sum_c * inv9;
             const float p1 = avg_a * avg_b + avg_c;
 
             const float sobel_dx =
-                -t0.d + t2.d
-                -2.0f * m0.d + 2.0f * m2.d
-                -b0.d + b2.d;
+                -t0->d + t2->d
+                -2.0f * m0->d + 2.0f * m2->d
+                -b0->d + b2->d;
             const float sobel_ex =
-                -t0.e + t2.e
-                -2.0f * m0.e + 2.0f * m2.e
-                -b0.e + b2.e;
+                -t0->e + t2->e
+                -2.0f * m0->e + 2.0f * m2->e
+                -b0->e + b2->e;
             const float sobel_fx =
-                -t0.f + t2.f
-                -2.0f * m0.f + 2.0f * m2.f
-                -b0.f + b2.f;
+                -t0->f + t2->f
+                -2.0f * m0->f + 2.0f * m2->f
+                -b0->f + b2->f;
             const float p2 = sobel_dx * sobel_ex + sobel_fx;
 
             const float sobel_gy =
-                -t0.g - 2.0f * t1.g - t2.g
-                + b0.g + 2.0f * b1.g + b2.g;
+                -t0->g - 2.0f * t1->g - t2->g
+                + b0->g + 2.0f * b1->g + b2->g;
             const float sobel_hy =
-                -t0.h - 2.0f * t1.h - t2.h
-                + b0.h + 2.0f * b1.h + b2.h;
+                -t0->h - 2.0f * t1->h - t2->h
+                + b0->h + 2.0f * b1->h + b2->h;
             const float sobel_iy =
-                -t0.i - 2.0f * t1.i - t2.i
-                + b0.i + 2.0f * b1.i + b2.i;
+                -t0->i - 2.0f * t1->i - t2->i
+                + b0->i + 2.0f * b1->i + b2->i;
             const float p3 = sobel_gy * sobel_hy + sobel_iy;
 
             total += p1 + p2 + p3;
-
-            ++top;
-            ++mid;
-            ++bot;
         }
     }
 

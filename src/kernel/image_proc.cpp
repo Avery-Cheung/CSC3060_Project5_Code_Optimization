@@ -227,72 +227,68 @@ void stu_image_proc(image_proc_args& args) {
         args.output.resize(n);
     }
 
-    const float* __restrict__ r = args.r_channel.data();
-    const float* __restrict__ g = args.g_channel.data();
-    const float* __restrict__ b = args.b_channel.data();
-    float* __restrict__ out = args.output.data();
+    const float* __restrict__ rptr = args.r_channel.data();
+    const float* __restrict__ gptr = args.g_channel.data();
+    const float* __restrict__ bptr = args.b_channel.data();
+    float* __restrict__ outptr = args.output.data();
     const float threshold = args.threshold;
 
+    const float gray_r = 0.299f;
+    const float gray_g = 0.587f;
+    const float gray_b = 0.114f;
+    const float inv_scale = 1.1111111f;
+    const float p_sin = 0.11f;
+    const float p_cos = 0.22f;
     const size_t limit = n & ~static_cast<size_t>(3);
+
     size_t i = 0;
-
     for (; i < limit; i += 4) {
-        float r_val0 = color_correct_f(r[i]);
-        float g_val0 = color_correct_f(g[i]);
-        float b_val0 = color_correct_f(b[i]);
-        float gray0 = (r_val0 * 0.299f) + (g_val0 * 0.587f) + (b_val0 * 0.114f);
-        float compressed_out0 = encode_color(gray0);
-        float mask0 = mask_logic_f(gray0, r_val0, g_val0, b_val0, threshold);
-        float sin0 = std::sinf(gray0 * 0.11f);
-        float cos0 = std::cosf(r_val0 * 0.22f);
-        float final0 = clamp01f((mask0 * 0.7f) + (sin0 * cos0 * 0.3f));
-        out[i] = clamp01f(compressed_out0 * importance_weight_f(final0));
+        float r0 = color_correct_f(rptr[i]);
+        float g0 = color_correct_f(gptr[i]);
+        float b0 = color_correct_f(bptr[i]);
+        float gray0 = (r0 * gray_r) + (g0 * gray_g) + (b0 * gray_b);
+        float compressed0 = encode_color(gray0);
+        float mask0 = mask_logic_f(gray0, r0, g0, b0, threshold);
+        float final0 = clamp01f((mask0 * 0.7f) + (std::sinf(gray0 * p_sin) * std::cosf(r0 * p_cos) * 0.3f));
+        outptr[i] = clamp01f(compressed0 * importance_weight_f(final0));
 
-        float r_val1 = color_correct_f(r[i + 1]);
-        float g_val1 = color_correct_f(g[i + 1]);
-        float b_val1 = color_correct_f(b[i + 1]);
-        float gray1 = (r_val1 * 0.299f) + (g_val1 * 0.587f) + (b_val1 * 0.114f);
-        float compressed_out1 = encode_color(gray1);
-        float mask1 = mask_logic_f(gray1, r_val1, g_val1, b_val1, threshold);
-        float sin1 = std::sinf(gray1 * 0.11f);
-        float cos1 = std::cosf(r_val1 * 0.22f);
-        float final1 = clamp01f((mask1 * 0.7f) + (sin1 * cos1 * 0.3f));
-        out[i + 1] = clamp01f(compressed_out1 * importance_weight_f(final1));
+        float r1 = color_correct_f(rptr[i + 1]);
+        float g1 = color_correct_f(gptr[i + 1]);
+        float b1 = color_correct_f(bptr[i + 1]);
+        float gray1 = (r1 * gray_r) + (g1 * gray_g) + (b1 * gray_b);
+        float compressed1 = encode_color(gray1);
+        float mask1 = mask_logic_f(gray1, r1, g1, b1, threshold);
+        float final1 = clamp01f((mask1 * 0.7f) + (std::sinf(gray1 * p_sin) * std::cosf(r1 * p_cos) * 0.3f));
+        outptr[i + 1] = clamp01f(compressed1 * importance_weight_f(final1));
 
-        float r_val2 = color_correct_f(r[i + 2]);
-        float g_val2 = color_correct_f(g[i + 2]);
-        float b_val2 = color_correct_f(b[i + 2]);
-        float gray2 = (r_val2 * 0.299f) + (g_val2 * 0.587f) + (b_val2 * 0.114f);
-        float compressed_out2 = encode_color(gray2);
-        float mask2 = mask_logic_f(gray2, r_val2, g_val2, b_val2, threshold);
-        float sin2 = std::sinf(gray2 * 0.11f);
-        float cos2 = std::cosf(r_val2 * 0.22f);
-        float final2 = clamp01f((mask2 * 0.7f) + (sin2 * cos2 * 0.3f));
-        out[i + 2] = clamp01f(compressed_out2 * importance_weight_f(final2));
+        float r2 = color_correct_f(rptr[i + 2]);
+        float g2 = color_correct_f(gptr[i + 2]);
+        float b2 = color_correct_f(bptr[i + 2]);
+        float gray2 = (r2 * gray_r) + (g2 * gray_g) + (b2 * gray_b);
+        float compressed2 = encode_color(gray2);
+        float mask2 = mask_logic_f(gray2, r2, g2, b2, threshold);
+        float final2 = clamp01f((mask2 * 0.7f) + (std::sinf(gray2 * p_sin) * std::cosf(r2 * p_cos) * 0.3f));
+        outptr[i + 2] = clamp01f(compressed2 * importance_weight_f(final2));
 
-        float r_val3 = color_correct_f(r[i + 3]);
-        float g_val3 = color_correct_f(g[i + 3]);
-        float b_val3 = color_correct_f(b[i + 3]);
-        float gray3 = (r_val3 * 0.299f) + (g_val3 * 0.587f) + (b_val3 * 0.114f);
-        float compressed_out3 = encode_color(gray3);
-        float mask3 = mask_logic_f(gray3, r_val3, g_val3, b_val3, threshold);
-        float sin3 = std::sinf(gray3 * 0.11f);
-        float cos3 = std::cosf(r_val3 * 0.22f);
-        float final3 = clamp01f((mask3 * 0.7f) + (sin3 * cos3 * 0.3f));
-        out[i + 3] = clamp01f(compressed_out3 * importance_weight_f(final3));
+        float r3 = color_correct_f(rptr[i + 3]);
+        float g3 = color_correct_f(gptr[i + 3]);
+        float b3 = color_correct_f(bptr[i + 3]);
+        float gray3 = (r3 * gray_r) + (g3 * gray_g) + (b3 * gray_b);
+        float compressed3 = encode_color(gray3);
+        float mask3 = mask_logic_f(gray3, r3, g3, b3, threshold);
+        float final3 = clamp01f((mask3 * 0.7f) + (std::sinf(gray3 * p_sin) * std::cosf(r3 * p_cos) * 0.3f));
+        outptr[i + 3] = clamp01f(compressed3 * importance_weight_f(final3));
     }
 
     for (; i < n; ++i) {
-        float r_val = color_correct_f(r[i]);
-        float g_val = color_correct_f(g[i]);
-        float b_val = color_correct_f(b[i]);
-        float gray = (r_val * 0.299f) + (g_val * 0.587f) + (b_val * 0.114f);
-        float compressed_out = encode_color(gray);
-        float mask = mask_logic_f(gray, r_val, g_val, b_val, threshold);
-        float sinv = std::sinf(gray * 0.11f);
-        float cosv = std::cosf(r_val * 0.22f);
-        float final_val = clamp01f((mask * 0.7f) + (sinv * cosv * 0.3f));
-        out[i] = clamp01f(compressed_out * importance_weight_f(final_val));
+        float r0 = color_correct_f(rptr[i]);
+        float g0 = color_correct_f(gptr[i]);
+        float b0 = color_correct_f(bptr[i]);
+        float gray0 = (r0 * gray_r) + (g0 * gray_g) + (b0 * gray_b);
+        float compressed0 = encode_color(gray0);
+        float mask0 = mask_logic_f(gray0, r0, g0, b0, threshold);
+        float final0 = clamp01f((mask0 * 0.7f) + (std::sinf(gray0 * p_sin) * std::cosf(r0 * p_cos) * 0.3f));
+        outptr[i] = clamp01f(compressed0 * importance_weight_f(final0));
     }
 }
 
