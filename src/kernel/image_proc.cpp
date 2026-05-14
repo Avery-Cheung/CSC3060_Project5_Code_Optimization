@@ -161,64 +161,20 @@ void naive_image_proc(image_proc_args& args) {
 // -------------------------------------------------------------------------
 // TODO: Student Implementation
 // -------------------------------------------------------------------------
+// ── Helper: branchless clamp ─────────────────────────────────────────────
 static inline float clamp01f(float v) {
-    return (v < 0.0f) ? 0.0f : (v > 1.0f) ? 1.0f : v;
+    return std::fmin(std::fmax(v, 0.0f), 1.0f);
 }
 
+// ── Helper: importance_weight — fully branchless, val ∈ [0,1] ────────────
+// LUT extended to 6 entries so lut[idx] and lut[idx+1] are always valid
+// (idx ≤ 4 for val ∈ [0,1], so idx+1 ≤ 5)
 static inline float importance_weight_f(float val) {
-    static const float lut[5] = {0.0f, 0.3f, 1.0f, 0.3f, 0.0f};
+    static const float lut[6] = {0.0f, 0.3f, 1.0f, 0.3f, 0.0f, 0.0f};
     float scaled = val * 4.0f;
     int idx = static_cast<int>(scaled);
-    if (idx < 0) {
-        idx = 0;
-    } else if (idx > 4) {
-        idx = 4;
-    }
-    if (idx < 4) {
-        const float frac = scaled - static_cast<float>(idx);
-        return lut[idx] * (1.0f - frac) + lut[idx + 1] * frac;
-    }
-    return lut[4];
-}
-
-static inline float mask_logic_f(float gray, float r_val, float g_val,
-                                 float b_val, float threshold) {
-    const float p0 = 0.11f;
-    const float p1 = 0.22f;
-    const float p2 = 0.33f;
-    const float p3 = 0.44f;
-    const float p4 = 0.55f;
-    const float p5 = 0.66f;
-    const float p6 = 0.77f;
-    const float p7 = 0.88f;
-    const float p8 = 0.99f;
-    const float p9 = 1.01f;
-
-    const float mask_true = (r_val * p0) + (g_val * p1) - (b_val * p2) + p9;
-    const float mask_true_adj = (mask_true > 0.8f) ? (mask_true * p3)
-                                                : (mask_true + p4);
-
-    const float mask_false = (r_val * p5) - (g_val * p6) + (b_val * p7) - p8;
-    const float mask_false_adj = (mask_false < 0.2f) ? (mask_false + p1)
-                                                   : (mask_false * p2);
-
-    return (gray > threshold) ? mask_true_adj : mask_false_adj;
-}
-
-static inline float color_correct_f(float v) {
-    v = v * 1.05f + 0.02f;
-    return clamp01f(v);
-}
-
-static inline float encode_color(float v) {
-    // Contrast + HDR compression pipeline
-    const float adjusted = clamp01f((v - 0.05f) * 1.1111111f);
-    const float gray_enhanced = adjusted * adjusted * (3.0f - 2.0f * adjusted);
-    const float intensity = gray_enhanced * 1.2f;
-    const float g3 = std::sqrt(intensity * intensity * 0.25f + 0.1f);
-    const float gain = (g3 > 1.0f) ? (1.0f / g3) : (g3 * 0.95f);
-    const float compressed = gray_enhanced * gain;
-    return compressed / (1.0f + compressed);
+    float frac = scaled - static_cast<float>(idx);
+    return lut[idx] * (1.0f - frac) + lut[idx + 1] * frac;
 }
 
 void stu_image_proc(image_proc_args& args) {
@@ -227,68 +183,59 @@ void stu_image_proc(image_proc_args& args) {
         args.output.resize(n);
     }
 
-    const float* __restrict__ rptr = args.r_channel.data();
-    const float* __restrict__ gptr = args.g_channel.data();
-    const float* __restrict__ bptr = args.b_channel.data();
-    float* __restrict__ outptr = args.output.data();
+    const float* __restrict rptr = args.r_channel.data();
+    const float* __restrict gptr = args.g_channel.data();
+    const float* __restrict bptr = args.b_channel.data();
+    float* __restrict outptr = args.output.data();
     const float threshold = args.threshold;
 
     const float gray_r = 0.299f;
     const float gray_g = 0.587f;
     const float gray_b = 0.114f;
-    const float inv_scale = 1.1111111f;
+    const float inv_contrast = 1.1111111f;   // 1 / 0.9
+    // sin/cos Taylor approximation constants: arguments are small
+    //   sin(x) ≈ x·(1 − x²/6)     x = hdr·0.11  ∈ [0, ~0.043]
+    //   cos(x) ≈ 1 − x²/2          x = r·0.22    ∈ [0, 0.22]
     const float p_sin = 0.11f;
     const float p_cos = 0.22f;
-    const size_t limit = n & ~static_cast<size_t>(3);
+    const float c_sin3 = 0.16666667f;        // 1/6
 
-    size_t i = 0;
-    for (; i < limit; i += 4) {
-        float r0 = color_correct_f(rptr[i]);
-        float g0 = color_correct_f(gptr[i]);
-        float b0 = color_correct_f(bptr[i]);
-        float gray0 = (r0 * gray_r) + (g0 * gray_g) + (b0 * gray_b);
-        float compressed0 = encode_color(gray0);
-        float mask0 = mask_logic_f(gray0, r0, g0, b0, threshold);
-        float final0 = clamp01f((mask0 * 0.7f) + (std::sinf(gray0 * p_sin) * std::cosf(r0 * p_cos) * 0.3f));
-        outptr[i] = clamp01f(compressed0 * importance_weight_f(final0));
+    #pragma clang loop vectorize(enable)
+    for (size_t i = 0; i < n; ++i) {
+        // Stage 1: Color correct (branchless clamp via std::fmin/std::fmax)
+        float r = std::fmin(std::fmax(rptr[i] * 1.05f + 0.02f, 0.0f), 1.0f);
+        float g = std::fmin(std::fmax(gptr[i] * 1.05f + 0.02f, 0.0f), 1.0f);
+        float b = std::fmin(std::fmax(bptr[i] * 1.05f + 0.02f, 0.0f), 1.0f);
 
-        float r1 = color_correct_f(rptr[i + 1]);
-        float g1 = color_correct_f(gptr[i + 1]);
-        float b1 = color_correct_f(bptr[i + 1]);
-        float gray1 = (r1 * gray_r) + (g1 * gray_g) + (b1 * gray_b);
-        float compressed1 = encode_color(gray1);
-        float mask1 = mask_logic_f(gray1, r1, g1, b1, threshold);
-        float final1 = clamp01f((mask1 * 0.7f) + (std::sinf(gray1 * p_sin) * std::cosf(r1 * p_cos) * 0.3f));
-        outptr[i + 1] = clamp01f(compressed1 * importance_weight_f(final1));
+        // Stage 2: Luminance
+        float gray = r * gray_r + g * gray_g + b * gray_b;
 
-        float r2 = color_correct_f(rptr[i + 2]);
-        float g2 = color_correct_f(gptr[i + 2]);
-        float b2 = color_correct_f(bptr[i + 2]);
-        float gray2 = (r2 * gray_r) + (g2 * gray_g) + (b2 * gray_b);
-        float compressed2 = encode_color(gray2);
-        float mask2 = mask_logic_f(gray2, r2, g2, b2, threshold);
-        float final2 = clamp01f((mask2 * 0.7f) + (std::sinf(gray2 * p_sin) * std::cosf(r2 * p_cos) * 0.3f));
-        outptr[i + 2] = clamp01f(compressed2 * importance_weight_f(final2));
+        // Stage 3+4: Contrast enhance + HDR compress (fused, dead branch eliminated)
+        //   gain = 0.95·√(0.36·ge² + 0.1)   — g3 is always < 1, so gain = g3·0.95 always
+        float ge = std::fmin(std::fmax((gray - 0.05f) * inv_contrast, 0.0f), 1.0f);
+        ge = ge * ge * (3.0f - 2.0f * ge);
+        float gain = 0.95f * std::sqrt(0.36f * ge * ge + 0.1f);
+        float comp = ge * gain;
+        float hdr = comp / (1.0f + comp);
 
-        float r3 = color_correct_f(rptr[i + 3]);
-        float g3 = color_correct_f(gptr[i + 3]);
-        float b3 = color_correct_f(bptr[i + 3]);
-        float gray3 = (r3 * gray_r) + (g3 * gray_g) + (b3 * gray_b);
-        float compressed3 = encode_color(gray3);
-        float mask3 = mask_logic_f(gray3, r3, g3, b3, threshold);
-        float final3 = clamp01f((mask3 * 0.7f) + (std::sinf(gray3 * p_sin) * std::cosf(r3 * p_cos) * 0.3f));
-        outptr[i + 3] = clamp01f(compressed3 * importance_weight_f(final3));
-    }
+        // Stage 5: Mask logic (uses hdr for comparison, like naive does)
+        float mask;
+        if (hdr > threshold) {
+            mask = r * 0.11f + g * 0.22f - b * 0.33f + 1.01f;
+            mask = (mask > 0.8f) ? (mask * 0.44f) : (mask + 0.55f);
+        } else {
+            mask = r * 0.66f - g * 0.77f + b * 0.88f - 0.99f;
+            mask = (mask < 0.2f) ? (mask + 0.22f) : (mask * 0.33f);
+        }
 
-    for (; i < n; ++i) {
-        float r0 = color_correct_f(rptr[i]);
-        float g0 = color_correct_f(gptr[i]);
-        float b0 = color_correct_f(bptr[i]);
-        float gray0 = (r0 * gray_r) + (g0 * gray_g) + (b0 * gray_b);
-        float compressed0 = encode_color(gray0);
-        float mask0 = mask_logic_f(gray0, r0, g0, b0, threshold);
-        float final0 = clamp01f((mask0 * 0.7f) + (std::sinf(gray0 * p_sin) * std::cosf(r0 * p_cos) * 0.3f));
-        outptr[i] = clamp01f(compressed0 * importance_weight_f(final0));
+        // Noise: sin(hdr·0.11)·cos(r·0.22) via Taylor polynomials
+        float sx = hdr * p_sin;
+        float cx = r * p_cos;
+        float sin_approx = sx * (1.0f - sx * sx * c_sin3);
+        float cos_approx = 1.0f - cx * cx * 0.5f;
+
+        float final_val = clamp01f(mask * 0.7f + sin_approx * cos_approx * 0.3f);
+        outptr[i] = clamp01f(hdr * importance_weight_f(final_val));
     }
 }
 
