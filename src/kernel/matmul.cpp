@@ -5,6 +5,7 @@
 #include <random>
 #include <stdexcept>
 #include <vector>
+#include <immintrin.h>
 
 void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     if (n <= 0) {
@@ -48,46 +49,82 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
                 int n) {
-    const size_t N = (size_t)n;
-    const size_t size = N * N;
 
-    std::vector<float> BT(size);
+    const int N = n;
+    const size_t SIZE = (size_t)N * N;
 
-    // 🔥 correct transpose (cache friendly)
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            BT[j * N + i] = B[i * N + j];
+    std::vector<float> BT(SIZE);
+
+    // transpose B
+    for (int i = 0; i < N; ++i) {
+        const float* __restrict b_row = &B[(size_t)i * N];
+
+        for (int j = 0; j < N; ++j) {
+            BT[(size_t)j * N + i] = b_row[j];
         }
     }
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    constexpr int BLOCK = 32; // 🔥 stable sweet spot
+    constexpr int BLOCK = 64;
 
-    for (int ii = 0; ii < n; ii += BLOCK) {
-        for (int jj = 0; jj < n; jj += BLOCK) {
-            for (int kk = 0; kk < n; kk += BLOCK) {
+    for (int ii = 0; ii < N; ii += BLOCK) {
 
-                int i_max = std::min(ii + BLOCK, n);
-                int j_max = std::min(jj + BLOCK, n);
-                int k_max = std::min(kk + BLOCK, n);
+        for (int jj = 0; jj < N; jj += BLOCK) {
+
+            for (int kk = 0; kk < N; kk += BLOCK) {
+
+                const int i_max = std::min(ii + BLOCK, N);
+                const int j_max = std::min(jj + BLOCK, N);
+                const int k_max = std::min(kk + BLOCK, N);
 
                 for (int i = ii; i < i_max; ++i) {
 
-                    const float* __restrict a_row = &A[(size_t)i * n];
-                    float* __restrict c_row = &C[(size_t)i * n];
+                    const float* __restrict a_row =
+                        &A[(size_t)i * N];
+
+                    float* __restrict c_row =
+                        &C[(size_t)i * N];
 
                     for (int j = jj; j < j_max; ++j) {
 
-                        const float* __restrict b_row = &BT[(size_t)j * n];
+                        const float* __restrict b_row =
+                            &BT[(size_t)j * N];
 
-                        float sum = c_row[j];
+                        __m256 vsum = _mm256_setzero_ps();
 
-                        for (int k = kk; k < k_max; ++k) {
+                        int k = kk;
+
+                        // AVX2 vectorized loop
+                        for (; k + 8 <= k_max; k += 8) {
+
+                            __m256 va =
+                                _mm256_loadu_ps(a_row + k);
+
+                            __m256 vb =
+                                _mm256_loadu_ps(b_row + k);
+
+                            vsum =
+                                _mm256_fmadd_ps(va, vb, vsum);
+                        }
+
+                        // horizontal sum
+                        alignas(32) float temp[8];
+
+                        _mm256_store_ps(temp, vsum);
+
+                        float sum =
+                            temp[0] + temp[1] +
+                            temp[2] + temp[3] +
+                            temp[4] + temp[5] +
+                            temp[6] + temp[7];
+
+                        // tail case
+                        for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
 
-                        c_row[j] = sum;
+                        c_row[j] += sum;
                     }
                 }
             }
