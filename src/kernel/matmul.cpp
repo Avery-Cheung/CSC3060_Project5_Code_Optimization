@@ -48,15 +48,13 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& A,
                 const std::vector<float>& B,
                 int n) {
+    if (n <= 0) return;
 
     const int N = n;
-    const size_t SIZE = (size_t)N * N;
+    const size_t size = (size_t)N * (size_t)N;
 
-    // -------------------------
-    // 1. transpose B (cache-friendly access)
-    // -------------------------
-    std::vector<float> BT(SIZE);
-
+    // local transpose buffer
+    std::vector<float> BT(size);
     for (int i = 0; i < N; ++i) {
         const float* __restrict b_row = &B[(size_t)i * N];
         for (int j = 0; j < N; ++j) {
@@ -66,60 +64,71 @@ void stu_matmul(std::vector<float>& C,
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // -------------------------
-    // 2. blocking size (safe sweet spot)
-    // -------------------------
+    // Blocking and unrolling parameters tuned for general CPUs
     constexpr int BLOCK = 32;
-
     for (int ii = 0; ii < N; ii += BLOCK) {
         for (int jj = 0; jj < N; jj += BLOCK) {
             for (int kk = 0; kk < N; kk += BLOCK) {
-
-                const int i_max = std::min(ii + BLOCK, N);
-                const int j_max = std::min(jj + BLOCK, N);
-                const int k_max = std::min(kk + BLOCK, N);
+                int i_max = std::min(ii + BLOCK, N);
+                int j_max = std::min(jj + BLOCK, N);
+                int k_max = std::min(kk + BLOCK, N);
 
                 for (int i = ii; i < i_max; ++i) {
+                    const float* __restrict a_row = &A[(size_t)i * N];
+                    float* __restrict c_row = &C[(size_t)i * N];
 
-                    const float* __restrict a_row =
-                        &A[(size_t)i * N];
+                    int j = jj;
+                    // process j in chunks of 4 for better ILP
+                    for (; j + 3 < j_max; j += 4) {
+                        const float* __restrict b0 = &BT[(size_t)(j + 0) * N];
+                        const float* __restrict b1 = &BT[(size_t)(j + 1) * N];
+                        const float* __restrict b2 = &BT[(size_t)(j + 2) * N];
+                        const float* __restrict b3 = &BT[(size_t)(j + 3) * N];
 
-                    float* __restrict c_row =
-                        &C[(size_t)i * N];
-
-                    for (int j = jj; j < j_max; ++j) {
-
-                        const float* __restrict b_row =
-                            &BT[(size_t)j * N];
-
-                        // -------------------------
-                        // 3. safe unrolling accumulator
-                        // -------------------------
-                        float sum = 0.0f;
+                        float s0 = c_row[j + 0];
+                        float s1 = c_row[j + 1];
+                        float s2 = c_row[j + 2];
+                        float s3 = c_row[j + 3];
 
                         int k = kk;
+                        int k_unroll_end = k_max - ((k_max - k) % 4);
+                        for (; k < k_unroll_end; k += 4) {
+                            float a0 = a_row[k];
+                            s0 += a0 * b0[k]; s1 += a0 * b1[k]; s2 += a0 * b2[k]; s3 += a0 * b3[k];
+                            float a1 = a_row[k + 1];
+                            s0 += a1 * b0[k + 1]; s1 += a1 * b1[k + 1]; s2 += a1 * b2[k + 1]; s3 += a1 * b3[k + 1];
+                            float a2 = a_row[k + 2];
+                            s0 += a2 * b0[k + 2]; s1 += a2 * b1[k + 2]; s2 += a2 * b2[k + 2]; s3 += a2 * b3[k + 2];
+                            float a3 = a_row[k + 3];
+                            s0 += a3 * b0[k + 3]; s1 += a3 * b1[k + 3]; s2 += a3 * b2[k + 3]; s3 += a3 * b3[k + 3];
+                        }
+                        for (; k < k_max; ++k) {
+                            float a = a_row[k];
+                            s0 += a * b0[k]; s1 += a * b1[k]; s2 += a * b2[k]; s3 += a * b3[k];
+                        }
 
-                        // loop unroll (compiler-friendly)
-                        for (; k + 7 < k_max; k += 8) {
+                        c_row[j + 0] = s0;
+                        c_row[j + 1] = s1;
+                        c_row[j + 2] = s2;
+                        c_row[j + 3] = s3;
+                    }
 
-                            sum += a_row[k]     * b_row[k];
+                    // tail for remaining j
+                    for (; j < j_max; ++j) {
+                        const float* __restrict b_row = &BT[(size_t)j * N];
+                        float sum = c_row[j];
+                        int k = kk;
+                        int k_unroll_end = k_max - ((k_max - k) % 4);
+                        for (; k < k_unroll_end; k += 4) {
+                            sum += a_row[k] * b_row[k];
                             sum += a_row[k + 1] * b_row[k + 1];
                             sum += a_row[k + 2] * b_row[k + 2];
                             sum += a_row[k + 3] * b_row[k + 3];
-
-                            sum += a_row[k + 4] * b_row[k + 4];
-                            sum += a_row[k + 5] * b_row[k + 5];
-                            sum += a_row[k + 6] * b_row[k + 6];
-                            sum += a_row[k + 7] * b_row[k + 7];
                         }
-
-                        // tail cleanup
                         for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
-
-                        // accumulate into C (IMPORTANT: correct semantics)
-                        c_row[j] += sum;
+                        c_row[j] = sum;
                     }
                 }
             }
