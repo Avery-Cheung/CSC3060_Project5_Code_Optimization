@@ -49,67 +49,42 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& B,
                 int n) {
 
-    // ================================
-    // 1. 初始化输出矩阵
-    // ================================
+    // 初始化输出矩阵，避免累加脏数据
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // 直接拿底层指针：减少 vector bounds / function call 开销
-    const float* matA = A.data();
-    const float* matB = B.data();
-    float* matC = C.data();
+    // 使用原始指针访问，提高访问效率（避免 vector 边界检查开销）
+    const float* lhs = A.data();
+    const float* rhs = B.data();
+    float* out = C.data();
 
-    // ================================
-    // 2. 分块大小（cache blocking 核心参数）
-    // ================================
-    constexpr int TILE = 64;
+    // 分块尺寸：用于提升 cache locality
+    constexpr int tile = 64;
 
-    // ================================
-    // 3. 三重分块循环（tile traversal）
-    //    外层控制大块位置
-    // ================================
-    for (int bi = 0; bi < n; bi += TILE) {
-        for (int bk = 0; bk < n; bk += TILE) {
-            for (int bj = 0; bj < n; bj += TILE) {
+    // 按 tile 划分三维遍历空间
+    for (int rowBlock = 0; rowBlock < n; rowBlock += tile) {
+        for (int colBlock = 0; colBlock < n; colBlock += tile) {
+            for (int innerBlock = 0; innerBlock < n; innerBlock += tile) {
 
-                const int i_max = std::min(bi + TILE, n);
-                const int k_max = std::min(bk + TILE, n);
-                const int j_max = std::min(bj + TILE, n);
+                const int rowEnd = std::min(rowBlock + tile, n);
+                const int colEnd = std::min(colBlock + tile, n);
+                const int innerEnd = std::min(innerBlock + tile, n);
 
-                // ================================
-                // 4. tile 内部计算
-                // ================================
-                for (int i = bi; i < i_max; ++i) {
+                // 遍历当前 tile 子矩阵
+                for (int r = rowBlock; r < rowEnd; ++r) {
 
-                    const int rowA = i * n;
-                    const int rowC = i * n;
+                    const int baseA = r * n;
+                    const int baseC = r * n;
 
-                    for (int k = bk; k < k_max; ++k) {
+                    for (int k = innerBlock; k < innerEnd; ++k) {
 
-                        // cache-friendly：A 的一个标量
-                        const float a_val = matA[rowA + k];
+                        const float factor = lhs[baseA + k];
+                        const int baseB = k * n;
 
-                        // B 和 C 在 j 维度上是连续访问
-                        const int rowB = k * n;
+                        float* cRow = out + baseC;
 
-                        float* c_ptr = matC + rowC;
-
-                        // ================================
-                        // 5. 最内层向量化友好循环
-                        // ================================
-                        int j = bj;
-
-                        // 手动 unroll（轻量优化）
-                        for (; j + 3 < j_max; j += 4) {
-                            c_ptr[j]     += a_val * matB[rowB + j];
-                            c_ptr[j + 1] += a_val * matB[rowB + j + 1];
-                            c_ptr[j + 2] += a_val * matB[rowB + j + 2];
-                            c_ptr[j + 3] += a_val * matB[rowB + j + 3];
-                        }
-
-                        // tail case
-                        for (; j < j_max; ++j) {
-                            c_ptr[j] += a_val * matB[rowB + j];
+                        // 顺序扫描列方向，保证 B/C 连续访问
+                        for (int c = colBlock; c < colEnd; ++c) {
+                            cRow[c] += factor * rhs[baseB + c];
                         }
                     }
                 }
