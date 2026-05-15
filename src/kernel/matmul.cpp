@@ -44,14 +44,12 @@ void naive_matmul(std::vector<float>& C,
     }
 }
 
-void stu_matmul(std::vector<float> &C,
-                const std::vector<float> &A,
-                const std::vector<float> &B,
-                int n) {
+void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
+                const std::vector<float> &B, int n) {
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    const int BLOCK = 32;  // 比 64 更稳（很多机器 L1 更友好）
+    const int BLOCK = 32; // 比 64 更稳（很多机器 L1 更友好）
 
     for (int ii = 0; ii < n; ii += BLOCK) {
         for (int jj = 0; jj < n; jj += BLOCK) {
@@ -61,16 +59,13 @@ void stu_matmul(std::vector<float> &C,
 
             for (int i = ii; i < i_max; ++i) {
 
-                const float* __restrict a_row =
-                    &A[(size_t)i * n];
+                const float *__restrict a_row = &A[(size_t)i * n];
 
-                float* __restrict c_row =
-                    &C[(size_t)i * n];
+                float *__restrict c_row = &C[(size_t)i * n];
 
                 for (int j = jj; j < j_max; ++j) {
 
-                    const float* __restrict b_col =
-                        &B[j];
+                    const float *__restrict b_col = &B[j];
 
                     float sum = 0.0f;
 
@@ -79,7 +74,7 @@ void stu_matmul(std::vector<float> &C,
                     // loop unrolling (safe version)
                     for (; k + 3 < n; k += 4) {
 
-                        sum += a_row[k]     * b_col[k * n];
+                        sum += a_row[k] * b_col[k * n];
                         sum += a_row[k + 1] * b_col[(k + 1) * n];
                         sum += a_row[k + 2] * b_col[(k + 2) * n];
                         sum += a_row[k + 3] * b_col[(k + 3) * n];
