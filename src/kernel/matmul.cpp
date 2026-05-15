@@ -52,14 +52,13 @@ void stu_matmul(std::vector<float>& C,
     const int N = n;
     const size_t SIZE = (size_t)N * N;
 
+    // -------------------------
+    // 1. transpose B (cache-friendly access)
+    // -------------------------
     std::vector<float> BT(SIZE);
 
-    // transpose B
     for (int i = 0; i < N; ++i) {
-
-        const float* __restrict b_row =
-            &B[(size_t)i * N];
-
+        const float* __restrict b_row = &B[(size_t)i * N];
         for (int j = 0; j < N; ++j) {
             BT[(size_t)j * N + i] = b_row[j];
         }
@@ -67,12 +66,13 @@ void stu_matmul(std::vector<float>& C,
 
     std::fill(C.begin(), C.end(), 0.0f);
 
+    // -------------------------
+    // 2. blocking size (safe sweet spot)
+    // -------------------------
     constexpr int BLOCK = 32;
 
     for (int ii = 0; ii < N; ii += BLOCK) {
-
         for (int jj = 0; jj < N; jj += BLOCK) {
-
             for (int kk = 0; kk < N; kk += BLOCK) {
 
                 const int i_max = std::min(ii + BLOCK, N);
@@ -92,30 +92,33 @@ void stu_matmul(std::vector<float>& C,
                         const float* __restrict b_row =
                             &BT[(size_t)j * N];
 
-                        float sum0 = 0.0f;
-                        float sum1 = 0.0f;
-                        float sum2 = 0.0f;
-                        float sum3 = 0.0f;
+                        // -------------------------
+                        // 3. safe unrolling accumulator
+                        // -------------------------
+                        float sum = 0.0f;
 
                         int k = kk;
 
-                        // 4-way unroll
-                        for (; k + 3 < k_max; k += 4) {
+                        // loop unroll (compiler-friendly)
+                        for (; k + 7 < k_max; k += 8) {
 
-                            sum0 += a_row[k]     * b_row[k];
-                            sum1 += a_row[k + 1] * b_row[k + 1];
-                            sum2 += a_row[k + 2] * b_row[k + 2];
-                            sum3 += a_row[k + 3] * b_row[k + 3];
+                            sum += a_row[k]     * b_row[k];
+                            sum += a_row[k + 1] * b_row[k + 1];
+                            sum += a_row[k + 2] * b_row[k + 2];
+                            sum += a_row[k + 3] * b_row[k + 3];
+
+                            sum += a_row[k + 4] * b_row[k + 4];
+                            sum += a_row[k + 5] * b_row[k + 5];
+                            sum += a_row[k + 6] * b_row[k + 6];
+                            sum += a_row[k + 7] * b_row[k + 7];
                         }
 
-                        float sum =
-                            sum0 + sum1 + sum2 + sum3;
-
-                        // tail
+                        // tail cleanup
                         for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
 
+                        // accumulate into C (IMPORTANT: correct semantics)
                         c_row[j] += sum;
                     }
                 }
