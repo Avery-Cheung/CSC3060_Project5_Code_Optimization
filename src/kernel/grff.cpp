@@ -90,117 +90,50 @@ void stu_grff(grff_args& args) {
     const float* __restrict B = args.b_features.data();
     const float* __restrict C = args.c_features.data();
     float* __restrict F = args.f_output.data();
-    float* __restrict B_omg = args.scratch.data();       // B * (1-G)
-    float* __restrict A_prime = B_omg + n;                // A_prime
+    float* __restrict G_arr = args.scratch.data();         // G[i]
+    float* __restrict A_prime = G_arr + n;                  // A_prime[i]
 
-    // ── Pass 1: B*(1-G), A_prime, and sum of A_prime ──────────────────────
-    // G = half + 0.5,  1-G = 0.5 - half,  where half = 0.5*prod*inv
+    // ── Pass 1: G, A_prime, sum — formula identical to naive Stage 1-3 ─────
     float sum_a = 0.0f;
     size_t i = 0;
-    const size_t limit = n & ~static_cast<size_t>(3);
 
-    for (; i < limit; i += 4) {
-        float a0 = A[i], b0 = B[i];
-        float prod0 = a0 * b0;
-        float inv0 = 1.0f / (1.0f + std::fabs(prod0));
-        float half0 = 0.5f * prod0 * inv0;
-        B_omg[i] = b0 * (0.5f - half0);
-        A_prime[i] = a0 + 0.5f + half0;
-        sum_a += A_prime[i];
-
-        float a1 = A[i + 1], b1 = B[i + 1];
-        float prod1 = a1 * b1;
-        float inv1 = 1.0f / (1.0f + std::fabs(prod1));
-        float half1 = 0.5f * prod1 * inv1;
-        B_omg[i + 1] = b1 * (0.5f - half1);
-        A_prime[i + 1] = a1 + 0.5f + half1;
-        sum_a += A_prime[i + 1];
-
-        float a2 = A[i + 2], b2 = B[i + 2];
-        float prod2 = a2 * b2;
-        float inv2 = 1.0f / (1.0f + std::fabs(prod2));
-        float half2 = 0.5f * prod2 * inv2;
-        B_omg[i + 2] = b2 * (0.5f - half2);
-        A_prime[i + 2] = a2 + 0.5f + half2;
-        sum_a += A_prime[i + 2];
-
-        float a3 = A[i + 3], b3 = B[i + 3];
-        float prod3 = a3 * b3;
-        float inv3 = 1.0f / (1.0f + std::fabs(prod3));
-        float half3 = 0.5f * prod3 * inv3;
-        B_omg[i + 3] = b3 * (0.5f - half3);
-        A_prime[i + 3] = a3 + 0.5f + half3;
-        sum_a += A_prime[i + 3];
-    }
     for (; i < n; ++i) {
-        float a = A[i], b = B[i];
-        float prod = a * b;
-        float inv = 1.0f / (1.0f + std::fabs(prod));
-        float half = 0.5f * prod * inv;
-        B_omg[i] = b * (0.5f - half);
-        A_prime[i] = a + 0.5f + half;
+        float prod = A[i] * B[i];
+        G_arr[i] = 0.5f * (prod / (1.0f + std::fabs(prod)) + 1.0f);
+        A_prime[i] = A[i] + G_arr[i];
         sum_a += A_prime[i];
     }
 
     const float avg_a = sum_a / static_cast<float>(n);
 
-    // ── Pass 2: Fused smooth + output (4x unrolled, no pragmas) ───────────
-    // smooth[0] = A_prime[0]
-    // smooth[i] = 0.5*(A_prime[i] + A_prime[i-1])  for i > 0
-    // F[i] = max((C[i] + sigmoid_s)*(1 - sigmoid_s) - B_omg[i]*avg_a/(1+|s|), 0)
-
-    // i = 0
-    {
-        float s = A_prime[0];
-        float inv_s = 1.0f / (1.0f + std::fabs(s));
-        float sig_s = s * inv_s;
-        float result = (C[0] + sig_s) * (1.0f - sig_s) - B_omg[0] * avg_a * inv_s;
-        F[0] = (result > 0.0f) ? result : 0.0f;
+    // ── Pass 2: In-place smooth, reverse traversal ─────────────────────────
+    // Smooth[0] = A_prime[0]; Smooth[i] = (A_prime[i]+A_prime[i-1])*0.5
+    float* __restrict smooth = A_prime;
+    for (i = n - 1; i >= 1; --i) {
+        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
     }
 
-    // i >= 1, 4x unrolled
-    float prev_ap = A_prime[0];
-    i = 1;
-    for (; i + 3 < n; i += 4) {
-        float ap0 = A_prime[i];
-        float ap1 = A_prime[i + 1];
-        float ap2 = A_prime[i + 2];
-        float ap3 = A_prime[i + 3];
+    // ── Pass 3: Stages 5-9, matching naive formula structure exactly ───────
+    for (i = 0; i < n; ++i) {
+        float s = smooth[i];
+        float abs_s = std::fabs(s);
+        float inv_s = 1.0f / (1.0f + abs_s);
 
-        float s0 = 0.5f * (ap0 + prev_ap);
-        float inv0 = 1.0f / (1.0f + std::fabs(s0));
-        float sig0 = s0 * inv0;
-        float res0 = (C[i] + sig0) * (1.0f - sig0) - B_omg[i] * avg_a * inv0;
-        F[i] = (res0 > 0.0f) ? res0 : 0.0f;
+        // Stage 5: B_prime = B * (1-G) * avg_a
+        float b_prime = B[i] * (1.0f - G_arr[i]) * avg_a;
 
-        float s1 = 0.5f * (ap1 + ap0);
-        float inv1 = 1.0f / (1.0f + std::fabs(s1));
-        float sig1 = s1 * inv1;
-        float res1 = (C[i + 1] + sig1) * (1.0f - sig1) - B_omg[i + 1] * avg_a * inv1;
-        F[i + 1] = (res1 > 0.0f) ? res1 : 0.0f;
+        // Stage 6: C_prime = C + Smooth / (1+|Smooth|)
+        float c_prime = C[i] + s * inv_s;
 
-        float s2 = 0.5f * (ap2 + ap1);
-        float inv2 = 1.0f / (1.0f + std::fabs(s2));
-        float sig2 = s2 * inv2;
-        float res2 = (C[i + 2] + sig2) * (1.0f - sig2) - B_omg[i + 2] * avg_a * inv2;
-        F[i + 2] = (res2 > 0.0f) ? res2 : 0.0f;
+        // Stage 7: H = Smooth * C_prime
+        float h = s * c_prime;
 
-        float s3 = 0.5f * (ap3 + ap2);
-        float inv3 = 1.0f / (1.0f + std::fabs(s3));
-        float sig3 = s3 * inv3;
-        float res3 = (C[i + 3] + sig3) * (1.0f - sig3) - B_omg[i + 3] * avg_a * inv3;
-        F[i + 3] = (res3 > 0.0f) ? res3 : 0.0f;
+        // Stage 8: E = (H + B_prime) / (1+|Smooth|)
+        float e = (h + b_prime) * inv_s;
 
-        prev_ap = ap3;
-    }
-    for (; i < n; ++i) {
-        float ap = A_prime[i];
-        float s = 0.5f * (ap + prev_ap);
-        float inv_s = 1.0f / (1.0f + std::fabs(s));
-        float sig_s = s * inv_s;
-        float result = (C[i] + sig_s) * (1.0f - sig_s) - B_omg[i] * avg_a * inv_s;
+        // Stage 9: ReLU
+        float result = c_prime - e;
         F[i] = (result > 0.0f) ? result : 0.0f;
-        prev_ap = ap;
     }
 }
 
