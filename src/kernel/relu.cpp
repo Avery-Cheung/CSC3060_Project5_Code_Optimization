@@ -31,14 +31,8 @@ void naive_relu(std::span<float> data) {
 }
 
 void stu_relu(std::span<float> data) {
-
-    float* ptr = data.data();
-    const size_t n = data.size();
-
-    #pragma clang loop vectorize(enable)
-    for (size_t i = 0; i < n; ++i) {
-        ptr[i] = std::max(ptr[i], 0.0f);
-    }
+    std::transform(data.begin(), data.end(), data.begin(),
+                   [](float v) { return std::max(v, 0.0f); });
 }
 
 void naive_relu_wrapper(void *ctx) {
