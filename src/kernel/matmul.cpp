@@ -49,21 +49,32 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& B,
                 int n) {
 
-    const size_t N = (size_t)n;
+    if (n <= 0) return;
+
+    const size_t N = static_cast<size_t>(n);
     const size_t size = N * N;
 
-    std::vector<float> BT(size);
+    // Reuse transpose buffer across calls to avoid repeated allocations.
+    // thread_local keeps it safe for multithreaded tests where each thread
+    // calls stu_matmul independently.
+    thread_local std::vector<float> BT;
+    if (BT.size() != size) {
+        BT.assign(size, 0.0f);
+    }
 
-    // 🔥 correct transpose (cache friendly)
+    // Faster transpose: use row pointer and advance bt pointer by stride
     for (size_t i = 0; i < N; ++i) {
+        const float* __restrict b_row = &B[i * N];
+        float* __restrict bt_ptr = &BT[i];
         for (size_t j = 0; j < N; ++j) {
-            BT[j * N + i] = B[i * N + j];
+            *bt_ptr = b_row[j];
+            bt_ptr += N;
         }
     }
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    constexpr int BLOCK = 32; // 🔥 stable sweet spot
+    constexpr int BLOCK = 32; // stable sweet spot for many CPUs
 
     for (int ii = 0; ii < n; ii += BLOCK) {
         for (int jj = 0; jj < n; jj += BLOCK) {
@@ -82,9 +93,19 @@ void stu_matmul(std::vector<float>& C,
 
                         const float* __restrict b_row = &BT[(size_t)j * n];
 
+                        // accumulate into a local variable for better register use
                         float sum = c_row[j];
 
-                        for (int k = kk; k < k_max; ++k) {
+                        // Unroll inner loop by 4 for better throughput
+                        int k = kk;
+                        int k_unroll_end = k_max - ((k_max - k) % 4);
+                        for (; k < k_unroll_end; k += 4) {
+                            sum += a_row[k] * b_row[k];
+                            sum += a_row[k + 1] * b_row[k + 1];
+                            sum += a_row[k + 2] * b_row[k + 2];
+                            sum += a_row[k + 3] * b_row[k + 3];
+                        }
+                        for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
 

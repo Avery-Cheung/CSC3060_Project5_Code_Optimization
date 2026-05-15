@@ -1,0 +1,14 @@
+# Visual Studio
+.vs/
+*.ipch
+*.pch
+*.obj
+*.exe
+*.ilk
+*.pdb
+
+# Build folders
+build/
+x64/
+Debug/
+Release/
