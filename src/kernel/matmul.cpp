@@ -49,42 +49,32 @@ void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    const int BLOCK = 32; // 比 64 更稳（很多机器 L1 更友好）
+    // 3D tiled matmul: C[i][j] += A[i][k] * B[k][j], accumulated across k-tiles.
+    // Block size chosen to fit a tile of B (BK×BK floats) in L1 cache.
+    constexpr int BK = 64;
 
-    for (int ii = 0; ii < n; ii += BLOCK) {
-        for (int jj = 0; jj < n; jj += BLOCK) {
+    for (int kk = 0; kk < n; kk += BK) {
+        const int k_end = (kk + BK < n) ? (kk + BK) : n;
 
-            int i_max = std::min(ii + BLOCK, n);
-            int j_max = std::min(jj + BLOCK, n);
+        for (int ii = 0; ii < n; ii += BK) {
+            const int i_end = (ii + BK < n) ? (ii + BK) : n;
 
-            for (int i = ii; i < i_max; ++i) {
+            for (int jj = 0; jj < n; jj += BK) {
+                const int j_end = (jj + BK < n) ? (jj + BK) : n;
 
-                const float *__restrict a_row = &A[(size_t)i * n];
+                // Micro-kernel over the tile
+                for (int i = ii; i < i_end; ++i) {
+                    float* __restrict c_row = &C[static_cast<size_t>(i) * n];
 
-                float *__restrict c_row = &C[(size_t)i * n];
+                    for (int k = kk; k < k_end; ++k) {
+                        const float aik = A[static_cast<size_t>(i) * n + k];
+                        const float* __restrict b_row = &B[static_cast<size_t>(k) * n];
 
-                for (int j = jj; j < j_max; ++j) {
-
-                    const float *__restrict b_col = &B[j];
-
-                    float sum = 0.0f;
-
-                    int k = 0;
-
-                    // loop unrolling (safe version)
-                    for (; k + 3 < n; k += 4) {
-
-                        sum += a_row[k] * b_col[k * n];
-                        sum += a_row[k + 1] * b_col[(k + 1) * n];
-                        sum += a_row[k + 2] * b_col[(k + 2) * n];
-                        sum += a_row[k + 3] * b_col[(k + 3) * n];
+                        // Inner loop: stride-1 access on both C and B
+                        for (int j = jj; j < j_end; ++j) {
+                            c_row[j] += aik * b_row[j];
+                        }
                     }
-
-                    for (; k < n; ++k) {
-                        sum += a_row[k] * b_col[k * n];
-                    }
-
-                    c_row[j] += sum;
                 }
             }
         }

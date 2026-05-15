@@ -27,16 +27,16 @@ void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_
 // -------------------------------------------------------------------------
 void naive_grff(grff_args& args) {
     size_t n = args.a_features.size();
-    
+
     // Intermediate buffers
     std::vector<float> G(n), A_prime(n), Smooth_A(n), B_prime(n), C_prime(n), H(n), E(n);
 
     // Stage 1: Gate
-    for (size_t i = 0; i < n; ++i) 
+    for (size_t i = 0; i < n; ++i)
         G[i] = 0.5f * ((args.a_features[i] * args.b_features[i]) / (1.0f + std::abs(args.a_features[i] * args.b_features[i])) + 1.0f);
 
     // Stage 2: Update A (Residual)
-    for (size_t i = 0; i < n; ++i) 
+    for (size_t i = 0; i < n; ++i)
         A_prime[i] = args.a_features[i] + G[i];
 
     // Stage 3: Global Feature Scaling
@@ -49,23 +49,23 @@ void naive_grff(grff_args& args) {
     // Stage 4: Update A (Smooth)
     Smooth_A[0] = A_prime[0];
     for (size_t i = 1; i < n; ++i) {
-        Smooth_A[i] = (A_prime[i] + A_prime[i-1]) * 0.5f; 
+        Smooth_A[i] = (A_prime[i] + A_prime[i-1]) * 0.5f;
     }
 
     // Stage 5: Update B (Suppression)
-    for (size_t i = 0; i < n; ++i) 
+    for (size_t i = 0; i < n; ++i)
         B_prime[i] = args.b_features[i] * (1.0f - G[i]) * avg_a;
 
-    // Stage 6: Context Integration 
-    for (size_t i = 0; i < n; ++i) 
+    // Stage 6: Context Integration
+    for (size_t i = 0; i < n; ++i)
         C_prime[i] = args.c_features[i] + (Smooth_A[i] / (1.0f + std::abs(Smooth_A[i])));
 
     // Stage 7: Hidden Interaction
-    for (size_t i = 0; i < n; ++i) 
+    for (size_t i = 0; i < n; ++i)
         H[i] = Smooth_A[i] * C_prime[i];
 
     // Stage 8: Normalization
-    for (size_t i = 0; i < n; ++i) 
+    for (size_t i = 0; i < n; ++i)
         E[i] = (H[i] + B_prime[i]) / (1.0f + std::abs(Smooth_A[i]));
 
     // Stage 9: Final Output (ReLU)
@@ -91,19 +91,15 @@ void stu_grff(grff_args& args) {
     const float* __restrict C = args.c_features.data();
     float* __restrict F = args.f_output.data();
     float* __restrict B_omg = args.scratch.data();       // B * (1-G)
-    float* __restrict A_prime = B_omg + n;                // later overwritten by smooth
+    float* __restrict A_prime = B_omg + n;                // A_prime
 
     // ── Pass 1: B*(1-G), A_prime, and sum of A_prime ──────────────────────
-    // G = 0.5*(prod*inv + 1),  1-G = 0.5*(1 - prod*inv)
-    // Let half = 0.5*prod*inv, then  G = half + 0.5,  1-G = 0.5 - half
+    // G = half + 0.5,  1-G = 0.5 - half,  where half = 0.5*prod*inv
     float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
     size_t i = 0;
     const size_t limit = n & ~static_cast<size_t>(3);
 
     for (; i < limit; i += 4) {
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
         float a0 = A[i], b0 = B[i];
         float prod0 = a0 * b0;
         float inv0 = 1.0f / (1.0f + std::fabs(prod0));
@@ -135,58 +131,6 @@ void stu_grff(grff_args& args) {
         B_omg[i + 3] = b3 * (0.5f - half3);
         A_prime[i + 3] = a3 + 0.5f + half3;
         sum3 += A_prime[i + 3];
-=======
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-        {   // elem 0
-            float a0 = A[i], b0 = B[i];
-            float prod0 = a0 * b0;
-            float inv0 = 1.0f / (1.0f + std::fabs(prod0));
-            float half0 = 0.5f * prod0 * inv0;
-            B_omg[i] = b0 * (0.5f - half0);
-            float ap0 = a0 + 0.5f + half0;
-            A_prime[i] = ap0;
-            sum0 += ap0;
-        }
-        {   // elem 1
-            float a1 = A[i + 1], b1 = B[i + 1];
-            float prod1 = a1 * b1;
-            float inv1 = 1.0f / (1.0f + std::fabs(prod1));
-            float half1 = 0.5f * prod1 * inv1;
-            B_omg[i + 1] = b1 * (0.5f - half1);
-            float ap1 = a1 + 0.5f + half1;
-            A_prime[i + 1] = ap1;
-            sum1 += ap1;
-        }
-        {   // elem 2
-            float a2 = A[i + 2], b2 = B[i + 2];
-            float prod2 = a2 * b2;
-            float inv2 = 1.0f / (1.0f + std::fabs(prod2));
-            float half2 = 0.5f * prod2 * inv2;
-            B_omg[i + 2] = b2 * (0.5f - half2);
-            float ap2 = a2 + 0.5f + half2;
-            A_prime[i + 2] = ap2;
-            sum2 += ap2;
-        }
-        {   // elem 3
-            float a3 = A[i + 3], b3 = B[i + 3];
-            float prod3 = a3 * b3;
-            float inv3 = 1.0f / (1.0f + std::fabs(prod3));
-            float half3 = 0.5f * prod3 * inv3;
-            B_omg[i + 3] = b3 * (0.5f - half3);
-            float ap3 = a3 + 0.5f + half3;
-            A_prime[i + 3] = ap3;
-            sum3 += ap3;
-        }
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
     }
     for (; i < n; ++i) {
         float a = A[i], b = B[i];
@@ -200,13 +144,10 @@ void stu_grff(grff_args& args) {
 
     const float avg_a = (sum0 + sum1 + sum2 + sum3) / static_cast<float>(n);
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
     // ── Pass 2: Fused smooth + output (4x unrolled, no pragmas) ───────────
     // smooth[0] = A_prime[0]
     // smooth[i] = 0.5*(A_prime[i] + A_prime[i-1])  for i > 0
-    // F[i] = max((C[i] + sigmoid_s)*(1 - sigmoid_s) - B_omg[i]*avg_a*inv_s, 0)
+    // F[i] = max((C[i] + sigmoid_s)*(1 - sigmoid_s) - B_omg[i]*avg_a/(1+|s|), 0)
 
     // i = 0
     {
@@ -217,7 +158,7 @@ void stu_grff(grff_args& args) {
         F[0] = (result > 0.0f) ? result : 0.0f;
     }
 
-    // i >= 1
+    // i >= 1, 4x unrolled
     float prev_ap = A_prime[0];
     i = 1;
     for (; i + 3 < n; i += 4) {
@@ -255,59 +196,11 @@ void stu_grff(grff_args& args) {
     for (; i < n; ++i) {
         float ap = A_prime[i];
         float s = 0.5f * (ap + prev_ap);
-=======
-    // ── Pass 2a: In-place smooth (reverse traversal, fully vectorizable) ──
-    // smooth[0] = A_prime[0]   (unchanged)
-    // smooth[i] = 0.5 * (A_prime[i] + A_prime[i-1])  for i > 0
-    // Going backwards, smooth[i-1] is still the original A_prime[i-1].
-    float* __restrict smooth = A_prime;
-    #pragma clang loop vectorize(enable)
-    for (i = n - 1; i >= 1; --i) {
-        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
-    }
-
-=======
-    // ── Pass 2a: In-place smooth (reverse traversal, fully vectorizable) ──
-    // smooth[0] = A_prime[0]   (unchanged)
-    // smooth[i] = 0.5 * (A_prime[i] + A_prime[i-1])  for i > 0
-    // Going backwards, smooth[i-1] is still the original A_prime[i-1].
-    float* __restrict smooth = A_prime;
-    #pragma clang loop vectorize(enable)
-    for (i = n - 1; i >= 1; --i) {
-        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
-    }
-
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
-    // ── Pass 2a: In-place smooth (reverse traversal, fully vectorizable) ──
-    // smooth[0] = A_prime[0]   (unchanged)
-    // smooth[i] = 0.5 * (A_prime[i] + A_prime[i-1])  for i > 0
-    // Going backwards, smooth[i-1] is still the original A_prime[i-1].
-    float* __restrict smooth = A_prime;
-    #pragma clang loop vectorize(enable)
-    for (i = n - 1; i >= 1; --i) {
-        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
-    }
-
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-    // ── Pass 2b: Fused output (fully vectorizable) ────────────────────────
-    // C_prime = C + sigmoid_s        where sigmoid_s = s / (1+|s|)
-    // F = max(C_prime - (s*C_prime + B*(1-G)*avg_a)/(1+|s|), 0)
-    //   = max((C + sigmoid_s)*(1 - sigmoid_s) - B_omg*avg_a*inv_s, 0)
-    #pragma clang loop vectorize(enable)
-    for (i = 0; i < n; ++i) {
-        float s = smooth[i];
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
-=======
->>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
         float inv_s = 1.0f / (1.0f + std::fabs(s));
         float sig_s = s * inv_s;
         float result = (C[i] + sig_s) * (1.0f - sig_s) - B_omg[i] * avg_a * inv_s;
         F[i] = (result > 0.0f) ? result : 0.0f;
+        prev_ap = ap;
     }
 }
 
