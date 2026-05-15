@@ -67,7 +67,7 @@ void stu_matmul(std::vector<float>& C,
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    constexpr int BLOCK = 64;
+    constexpr int BLOCK = 32;
 
     for (int ii = 0; ii < N; ii += BLOCK) {
 
@@ -92,36 +92,38 @@ void stu_matmul(std::vector<float>& C,
                         const float* __restrict b_row =
                             &BT[(size_t)j * N];
 
-                        float sum = c_row[j];
+                        float sum0 = 0.0f;
+                        float sum1 = 0.0f;
+                        float sum2 = 0.0f;
+                        float sum3 = 0.0f;
 
                         int k = kk;
 
-                        // manual unroll
-                        for (; k + 7 < k_max; k += 8) {
+                        // 4-way unroll
+                        for (; k + 3 < k_max; k += 4) {
 
-                            sum += a_row[k]     * b_row[k];
-                            sum += a_row[k + 1] * b_row[k + 1];
-                            sum += a_row[k + 2] * b_row[k + 2];
-                            sum += a_row[k + 3] * b_row[k + 3];
-
-                            sum += a_row[k + 4] * b_row[k + 4];
-                            sum += a_row[k + 5] * b_row[k + 5];
-                            sum += a_row[k + 6] * b_row[k + 6];
-                            sum += a_row[k + 7] * b_row[k + 7];
+                            sum0 += a_row[k]     * b_row[k];
+                            sum1 += a_row[k + 1] * b_row[k + 1];
+                            sum2 += a_row[k + 2] * b_row[k + 2];
+                            sum3 += a_row[k + 3] * b_row[k + 3];
                         }
+
+                        float sum =
+                            sum0 + sum1 + sum2 + sum3;
 
                         // tail
                         for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
 
-                        c_row[j] = sum;
+                        c_row[j] += sum;
                     }
                 }
             }
         }
     }
 }
+
 void naive_matmul_wrapper(void* ctx) {
     auto& args = *static_cast<matmul_args*>(ctx);
     naive_matmul(args.C, args.A, args.B, args.n);
