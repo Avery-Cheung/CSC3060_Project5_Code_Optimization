@@ -102,6 +102,7 @@ void stu_grff(grff_args& args) {
 
     for (; i < limit; i += 4) {
 <<<<<<< HEAD
+<<<<<<< HEAD
         float a0 = A[i], b0 = B[i];
         float prod0 = a0 * b0;
         float inv0 = 1.0f / (1.0f + std::fabs(prod0));
@@ -134,6 +135,8 @@ void stu_grff(grff_args& args) {
         A_prime[i + 3] = a3 + 0.5f + half3;
         sum3 += A_prime[i + 3];
 =======
+=======
+>>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
         {   // elem 0
             float a0 = A[i], b0 = B[i];
             float prod0 = a0 * b0;
@@ -174,6 +177,9 @@ void stu_grff(grff_args& args) {
             A_prime[i + 3] = ap3;
             sum3 += ap3;
         }
+<<<<<<< HEAD
+>>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
+=======
 >>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
     }
     for (; i < n; ++i) {
@@ -188,6 +194,7 @@ void stu_grff(grff_args& args) {
 
     const float avg_a = (sum0 + sum1 + sum2 + sum3) / static_cast<float>(n);
 
+<<<<<<< HEAD
 <<<<<<< HEAD
     // ── Pass 2: Fused smooth + output (4x unrolled, no pragmas) ───────────
     // smooth[0] = A_prime[0]
@@ -252,6 +259,18 @@ void stu_grff(grff_args& args) {
         smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
     }
 
+=======
+    // ── Pass 2a: In-place smooth (reverse traversal, fully vectorizable) ──
+    // smooth[0] = A_prime[0]   (unchanged)
+    // smooth[i] = 0.5 * (A_prime[i] + A_prime[i-1])  for i > 0
+    // Going backwards, smooth[i-1] is still the original A_prime[i-1].
+    float* __restrict smooth = A_prime;
+    #pragma clang loop vectorize(enable)
+    for (i = n - 1; i >= 1; --i) {
+        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
+    }
+
+>>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
     // ── Pass 2b: Fused output (fully vectorizable) ────────────────────────
     // C_prime = C + sigmoid_s        where sigmoid_s = s / (1+|s|)
     // F = max(C_prime - (s*C_prime + B*(1-G)*avg_a)/(1+|s|), 0)
@@ -259,6 +278,9 @@ void stu_grff(grff_args& args) {
     #pragma clang loop vectorize(enable)
     for (i = 0; i < n; ++i) {
         float s = smooth[i];
+<<<<<<< HEAD
+>>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
+=======
 >>>>>>> parent of 9a62dd4 (2 functions bug-fix attempt)
         float inv_s = 1.0f / (1.0f + std::fabs(s));
         float sig_s = s * inv_s;
