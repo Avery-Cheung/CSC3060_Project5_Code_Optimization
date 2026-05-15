@@ -95,7 +95,7 @@ void stu_grff(grff_args& args) {
 
     // ── Pass 1: B*(1-G), A_prime, and sum of A_prime ──────────────────────
     // G = half + 0.5,  1-G = 0.5 - half,  where half = 0.5*prod*inv
-    float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
+    float sum_a = 0.0f;
     size_t i = 0;
     const size_t limit = n & ~static_cast<size_t>(3);
 
@@ -106,7 +106,7 @@ void stu_grff(grff_args& args) {
         float half0 = 0.5f * prod0 * inv0;
         B_omg[i] = b0 * (0.5f - half0);
         A_prime[i] = a0 + 0.5f + half0;
-        sum0 += A_prime[i];
+        sum_a += A_prime[i];
 
         float a1 = A[i + 1], b1 = B[i + 1];
         float prod1 = a1 * b1;
@@ -114,7 +114,7 @@ void stu_grff(grff_args& args) {
         float half1 = 0.5f * prod1 * inv1;
         B_omg[i + 1] = b1 * (0.5f - half1);
         A_prime[i + 1] = a1 + 0.5f + half1;
-        sum1 += A_prime[i + 1];
+        sum_a += A_prime[i + 1];
 
         float a2 = A[i + 2], b2 = B[i + 2];
         float prod2 = a2 * b2;
@@ -122,7 +122,7 @@ void stu_grff(grff_args& args) {
         float half2 = 0.5f * prod2 * inv2;
         B_omg[i + 2] = b2 * (0.5f - half2);
         A_prime[i + 2] = a2 + 0.5f + half2;
-        sum2 += A_prime[i + 2];
+        sum_a += A_prime[i + 2];
 
         float a3 = A[i + 3], b3 = B[i + 3];
         float prod3 = a3 * b3;
@@ -130,7 +130,7 @@ void stu_grff(grff_args& args) {
         float half3 = 0.5f * prod3 * inv3;
         B_omg[i + 3] = b3 * (0.5f - half3);
         A_prime[i + 3] = a3 + 0.5f + half3;
-        sum3 += A_prime[i + 3];
+        sum_a += A_prime[i + 3];
     }
     for (; i < n; ++i) {
         float a = A[i], b = B[i];
@@ -139,10 +139,10 @@ void stu_grff(grff_args& args) {
         float half = 0.5f * prod * inv;
         B_omg[i] = b * (0.5f - half);
         A_prime[i] = a + 0.5f + half;
-        sum0 += A_prime[i];
+        sum_a += A_prime[i];
     }
 
-    const float avg_a = (sum0 + sum1 + sum2 + sum3) / static_cast<float>(n);
+    const float avg_a = sum_a / static_cast<float>(n);
 
     // ── Pass 2: Fused smooth + output (4x unrolled, no pragmas) ───────────
     // smooth[0] = A_prime[0]

@@ -49,8 +49,7 @@ void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
 
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // 3D tiled matmul: C[i][j] += A[i][k] * B[k][j], accumulated across k-tiles.
-    // Block size chosen to fit a tile of B (BK×BK floats) in L1 cache.
+    // 3D tiled matmul with BK×BK B-tile fitting L1 cache.
     constexpr int BK = 64;
 
     for (int kk = 0; kk < n; kk += BK) {
@@ -62,16 +61,41 @@ void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
             for (int jj = 0; jj < n; jj += BK) {
                 const int j_end = (jj + BK < n) ? (jj + BK) : n;
 
-                // Micro-kernel over the tile
                 for (int i = ii; i < i_end; ++i) {
                     float* __restrict c_row = &C[static_cast<size_t>(i) * n];
 
-                    for (int k = kk; k < k_end; ++k) {
+                    // k-loop unrolled by 2: reuse 2 B rows per pass
+                    int k = kk;
+                    for (; k + 1 < k_end; k += 2) {
+                        const float aik0 = A[static_cast<size_t>(i) * n + k];
+                        const float aik1 = A[static_cast<size_t>(i) * n + k + 1];
+                        const float* __restrict b0 = &B[static_cast<size_t>(k) * n];
+                        const float* __restrict b1 = &B[static_cast<size_t>(k + 1) * n];
+
+                        // Inner j-loop unrolled by 4
+                        int j = jj;
+                        for (; j + 3 < j_end; j += 4) {
+                            c_row[j]   += aik0 * b0[j]   + aik1 * b1[j];
+                            c_row[j+1] += aik0 * b0[j+1] + aik1 * b1[j+1];
+                            c_row[j+2] += aik0 * b0[j+2] + aik1 * b1[j+2];
+                            c_row[j+3] += aik0 * b0[j+3] + aik1 * b1[j+3];
+                        }
+                        for (; j < j_end; ++j) {
+                            c_row[j] += aik0 * b0[j] + aik1 * b1[j];
+                        }
+                    }
+                    // Tail k (0 or 1 element)
+                    for (; k < k_end; ++k) {
                         const float aik = A[static_cast<size_t>(i) * n + k];
                         const float* __restrict b_row = &B[static_cast<size_t>(k) * n];
-
-                        // Inner loop: stride-1 access on both C and B
-                        for (int j = jj; j < j_end; ++j) {
+                        int j = jj;
+                        for (; j + 3 < j_end; j += 4) {
+                            c_row[j]   += aik * b_row[j];
+                            c_row[j+1] += aik * b_row[j+1];
+                            c_row[j+2] += aik * b_row[j+2];
+                            c_row[j+3] += aik * b_row[j+3];
+                        }
+                        for (; j < j_end; ++j) {
                             c_row[j] += aik * b_row[j];
                         }
                     }
