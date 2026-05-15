@@ -1,5 +1,5 @@
-/Users/Jackylee/Documents/GitHub/CSC3060_Project5_Code_Optimization/build/CMakeFiles/kernels.dir
-/Users/Jackylee/Documents/GitHub/CSC3060_Project5_Code_Optimization/build/CMakeFiles/single_bench.dir
-/Users/Jackylee/Documents/GitHub/CSC3060_Project5_Code_Optimization/build/CMakeFiles/run_all.dir
-/Users/Jackylee/Documents/GitHub/CSC3060_Project5_Code_Optimization/build/CMakeFiles/edit_cache.dir
-/Users/Jackylee/Documents/GitHub/CSC3060_Project5_Code_Optimization/build/CMakeFiles/rebuild_cache.dir
+/e/informationInUniversity/CSC/CSC3060/HW5/CSC3060_Project5_Code_Optimization/build/CMakeFiles/kernels.dir
+/e/informationInUniversity/CSC/CSC3060/HW5/CSC3060_Project5_Code_Optimization/build/CMakeFiles/single_bench.dir
+/e/informationInUniversity/CSC/CSC3060/HW5/CSC3060_Project5_Code_Optimization/build/CMakeFiles/run_all.dir
+/e/informationInUniversity/CSC/CSC3060/HW5/CSC3060_Project5_Code_Optimization/build/CMakeFiles/edit_cache.dir
+/e/informationInUniversity/CSC/CSC3060/HW5/CSC3060_Project5_Code_Optimization/build/CMakeFiles/rebuild_cache.dir

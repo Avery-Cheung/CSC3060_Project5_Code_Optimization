@@ -44,59 +44,72 @@ void naive_matmul(std::vector<float>& C,
     }
 }
 
-void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
-                const std::vector<float> &B, int n) {
+void stu_matmul(std::vector<float>& C,
+                const std::vector<float>& A,
+                const std::vector<float>& B,
+                int n) {
 
+    // ================================
+    // 1. 初始化输出矩阵
+    // ================================
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // 3D tiled matmul with BK×BK B-tile fitting L1 cache.
-    constexpr int BK = 64;
+    // 直接拿底层指针：减少 vector bounds / function call 开销
+    const float* matA = A.data();
+    const float* matB = B.data();
+    float* matC = C.data();
 
-    for (int kk = 0; kk < n; kk += BK) {
-        const int k_end = (kk + BK < n) ? (kk + BK) : n;
+    // ================================
+    // 2. 分块大小（cache blocking 核心参数）
+    // ================================
+    constexpr int TILE = 64;
 
-        for (int ii = 0; ii < n; ii += BK) {
-            const int i_end = (ii + BK < n) ? (ii + BK) : n;
+    // ================================
+    // 3. 三重分块循环（tile traversal）
+    //    外层控制大块位置
+    // ================================
+    for (int bi = 0; bi < n; bi += TILE) {
+        for (int bk = 0; bk < n; bk += TILE) {
+            for (int bj = 0; bj < n; bj += TILE) {
 
-            for (int jj = 0; jj < n; jj += BK) {
-                const int j_end = (jj + BK < n) ? (jj + BK) : n;
+                const int i_max = std::min(bi + TILE, n);
+                const int k_max = std::min(bk + TILE, n);
+                const int j_max = std::min(bj + TILE, n);
 
-                for (int i = ii; i < i_end; ++i) {
-                    float* __restrict c_row = &C[static_cast<size_t>(i) * n];
+                // ================================
+                // 4. tile 内部计算
+                // ================================
+                for (int i = bi; i < i_max; ++i) {
 
-                    // k-loop unrolled by 2: reuse 2 B rows per pass
-                    int k = kk;
-                    for (; k + 1 < k_end; k += 2) {
-                        const float aik0 = A[static_cast<size_t>(i) * n + k];
-                        const float aik1 = A[static_cast<size_t>(i) * n + k + 1];
-                        const float* __restrict b0 = &B[static_cast<size_t>(k) * n];
-                        const float* __restrict b1 = &B[static_cast<size_t>(k + 1) * n];
+                    const int rowA = i * n;
+                    const int rowC = i * n;
 
-                        // Inner j-loop unrolled by 4
-                        int j = jj;
-                        for (; j + 3 < j_end; j += 4) {
-                            c_row[j]   += aik0 * b0[j]   + aik1 * b1[j];
-                            c_row[j+1] += aik0 * b0[j+1] + aik1 * b1[j+1];
-                            c_row[j+2] += aik0 * b0[j+2] + aik1 * b1[j+2];
-                            c_row[j+3] += aik0 * b0[j+3] + aik1 * b1[j+3];
+                    for (int k = bk; k < k_max; ++k) {
+
+                        // cache-friendly：A 的一个标量
+                        const float a_val = matA[rowA + k];
+
+                        // B 和 C 在 j 维度上是连续访问
+                        const int rowB = k * n;
+
+                        float* c_ptr = matC + rowC;
+
+                        // ================================
+                        // 5. 最内层向量化友好循环
+                        // ================================
+                        int j = bj;
+
+                        // 手动 unroll（轻量优化）
+                        for (; j + 3 < j_max; j += 4) {
+                            c_ptr[j]     += a_val * matB[rowB + j];
+                            c_ptr[j + 1] += a_val * matB[rowB + j + 1];
+                            c_ptr[j + 2] += a_val * matB[rowB + j + 2];
+                            c_ptr[j + 3] += a_val * matB[rowB + j + 3];
                         }
-                        for (; j < j_end; ++j) {
-                            c_row[j] += aik0 * b0[j] + aik1 * b1[j];
-                        }
-                    }
-                    // Tail k (0 or 1 element)
-                    for (; k < k_end; ++k) {
-                        const float aik = A[static_cast<size_t>(i) * n + k];
-                        const float* __restrict b_row = &B[static_cast<size_t>(k) * n];
-                        int j = jj;
-                        for (; j + 3 < j_end; j += 4) {
-                            c_row[j]   += aik * b_row[j];
-                            c_row[j+1] += aik * b_row[j+1];
-                            c_row[j+2] += aik * b_row[j+2];
-                            c_row[j+3] += aik * b_row[j+3];
-                        }
-                        for (; j < j_end; ++j) {
-                            c_row[j] += aik * b_row[j];
+
+                        // tail case
+                        for (; j < j_max; ++j) {
+                            c_ptr[j] += a_val * matB[rowB + j];
                         }
                     }
                 }
