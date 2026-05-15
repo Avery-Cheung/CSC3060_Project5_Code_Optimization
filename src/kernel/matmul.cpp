@@ -5,6 +5,7 @@
 #include <random>
 #include <stdexcept>
 #include <vector>
+#include <thread>
 
 void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     if (n <= 0) {
@@ -49,47 +50,105 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& B,
                 int n) {
 
-    // 初始化输出矩阵，避免累加脏数据
+    constexpr int TILE_W = 128;
+
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // 使用原始指针访问，提高访问效率（避免 vector 边界检查开销）
-    const float* lhs = A.data();
-    const float* rhs = B.data();
-    float* out = C.data();
+    const float* __restrict matA = A.data();
+    const float* __restrict matB = B.data();
+    float* __restrict matC = C.data();
 
-    // 分块尺寸：用于提升 cache locality
-    constexpr int tile = 64;
+    auto kernel = [&](int start, int stop) {
 
-    // 按 tile 划分三维遍历空间
-    for (int rowBlock = 0; rowBlock < n; rowBlock += tile) {
-        for (int colBlock = 0; colBlock < n; colBlock += tile) {
-            for (int innerBlock = 0; innerBlock < n; innerBlock += tile) {
+        for (int r = start; r < stop; ++r) {
 
-                const int rowEnd = std::min(rowBlock + tile, n);
-                const int colEnd = std::min(colBlock + tile, n);
-                const int innerEnd = std::min(innerBlock + tile, n);
+            float* dst = matC + static_cast<std::size_t>(r) * n;
+            const float* srcA =
+                matA + static_cast<std::size_t>(r) * n;
 
-                // 遍历当前 tile 子矩阵
-                for (int r = rowBlock; r < rowEnd; ++r) {
+            for (int jb = 0; jb < n; jb += TILE_W) {
 
-                    const int baseA = r * n;
-                    const int baseC = r * n;
+                const int limit =
+                    (jb + TILE_W < n) ? (jb + TILE_W) : n;
 
-                    for (int k = innerBlock; k < innerEnd; ++k) {
+                for (int kk = 0; kk < n; ++kk) {
 
-                        const float factor = lhs[baseA + k];
-                        const int baseB = k * n;
+                    const float coeff = srcA[kk];
+                    const float* srcB =
+                        matB + static_cast<std::size_t>(kk) * n + jb;
 
-                        float* cRow = out + baseC;
+                    float* out = dst + jb;
 
-                        // 顺序扫描列方向，保证 B/C 连续访问
-                        for (int c = colBlock; c < colEnd; ++c) {
-                            cRow[c] += factor * rhs[baseB + c];
-                        }
+                    int width = limit - jb;
+
+                    // 8-way unroll
+                    while (width >= 8) {
+
+                        out[0] += coeff * srcB[0];
+                        out[1] += coeff * srcB[1];
+                        out[2] += coeff * srcB[2];
+                        out[3] += coeff * srcB[3];
+
+                        out[4] += coeff * srcB[4];
+                        out[5] += coeff * srcB[5];
+                        out[6] += coeff * srcB[6];
+                        out[7] += coeff * srcB[7];
+
+                        out += 8;
+                        srcB += 8;
+                        width -= 8;
+                    }
+
+                    // tail
+                    while (width > 0) {
+                        *out += coeff * (*srcB);
+                        ++out;
+                        ++srcB;
+                        --width;
                     }
                 }
             }
         }
+    };
+
+    unsigned concurrency = std::thread::hardware_concurrency();
+
+    if (concurrency == 0) {
+        concurrency = 8;
+    }
+
+    const int workers =
+        std::max(1u, std::min(16u, concurrency));
+
+    if (workers == 1 || n < 128) {
+        kernel(0, n);
+        return;
+    }
+
+    std::vector<std::thread> jobs;
+
+    const int stride =
+        (n + workers - 1) / workers;
+
+    int begin = 0;
+
+    for (int id = 0; id + 1 < workers; ++id) {
+
+        int end = std::min(begin + stride, n);
+
+        if (begin >= end) {
+            break;
+        }
+
+        jobs.emplace_back(kernel, begin, end);
+
+        begin = end;
+    }
+
+    kernel(begin, n);
+
+    for (auto& t : jobs) {
+        t.join();
     }
 }
 
