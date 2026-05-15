@@ -90,6 +90,7 @@ void stu_matmul(std::vector<float> &C, const std::vector<float> &A,
         }
     }
 }
+
 void naive_matmul_wrapper(void* ctx) {
     auto& args = *static_cast<matmul_args*>(ctx);
     naive_matmul(args.C, args.A, args.B, args.n);
