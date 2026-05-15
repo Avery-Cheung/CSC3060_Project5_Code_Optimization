@@ -5,7 +5,6 @@
 #include <random>
 #include <stdexcept>
 #include <vector>
-#include <immintrin.h>
 
 void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     if (n <= 0) {
@@ -57,7 +56,9 @@ void stu_matmul(std::vector<float>& C,
 
     // transpose B
     for (int i = 0; i < N; ++i) {
-        const float* __restrict b_row = &B[(size_t)i * N];
+
+        const float* __restrict b_row =
+            &B[(size_t)i * N];
 
         for (int j = 0; j < N; ++j) {
             BT[(size_t)j * N + i] = b_row[j];
@@ -91,47 +92,36 @@ void stu_matmul(std::vector<float>& C,
                         const float* __restrict b_row =
                             &BT[(size_t)j * N];
 
-                        __m256 vsum = _mm256_setzero_ps();
+                        float sum = c_row[j];
 
                         int k = kk;
 
-                        // AVX2 vectorized loop
-                        for (; k + 8 <= k_max; k += 8) {
+                        // manual unroll
+                        for (; k + 7 < k_max; k += 8) {
 
-                            __m256 va =
-                                _mm256_loadu_ps(a_row + k);
+                            sum += a_row[k]     * b_row[k];
+                            sum += a_row[k + 1] * b_row[k + 1];
+                            sum += a_row[k + 2] * b_row[k + 2];
+                            sum += a_row[k + 3] * b_row[k + 3];
 
-                            __m256 vb =
-                                _mm256_loadu_ps(b_row + k);
-
-                            vsum =
-                                _mm256_fmadd_ps(va, vb, vsum);
+                            sum += a_row[k + 4] * b_row[k + 4];
+                            sum += a_row[k + 5] * b_row[k + 5];
+                            sum += a_row[k + 6] * b_row[k + 6];
+                            sum += a_row[k + 7] * b_row[k + 7];
                         }
 
-                        // horizontal sum
-                        alignas(32) float temp[8];
-
-                        _mm256_store_ps(temp, vsum);
-
-                        float sum =
-                            temp[0] + temp[1] +
-                            temp[2] + temp[3] +
-                            temp[4] + temp[5] +
-                            temp[6] + temp[7];
-
-                        // tail case
+                        // tail
                         for (; k < k_max; ++k) {
                             sum += a_row[k] * b_row[k];
                         }
 
-                        c_row[j] += sum;
+                        c_row[j] = sum;
                     }
                 }
             }
         }
     }
 }
-
 void naive_matmul_wrapper(void* ctx) {
     auto& args = *static_cast<matmul_args*>(ctx);
     naive_matmul(args.C, args.A, args.B, args.n);
