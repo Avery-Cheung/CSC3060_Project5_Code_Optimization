@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <immintrin.h>
 
 void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_t seed) {
     if (!args) return;
@@ -93,32 +94,84 @@ void stu_grff(grff_args& args) {
     float* __restrict F = args.f_output.data();
     float* __restrict G = args.scratch.data();
 
+    constexpr size_t STEP = 16;
+
+    const __m512 one = _mm512_set1_ps(1.0f);
+    const __m512 half = _mm512_set1_ps(0.5f);
+    const __m512 zero = _mm512_setzero_ps();
+
     // -------------------------------------------------
     // Pass 1:
-    // Compute G + accumulate avg
+    // G + sum
     // -------------------------------------------------
+
+    __m512 vsum = _mm512_setzero_ps();
+
+    size_t i = 0;
+
+    for (; i + STEP <= n; i += STEP) {
+
+        __m512 va = _mm512_loadu_ps(A + i);
+        __m512 vb = _mm512_loadu_ps(B + i);
+
+        __m512 prod = _mm512_mul_ps(va, vb);
+
+        __m512 abs_prod =
+            _mm512_abs_ps(prod);
+
+        __m512 denom =
+            _mm512_add_ps(one, abs_prod);
+
+        __m512 frac =
+            _mm512_div_ps(prod, denom);
+
+        __m512 g =
+            _mm512_mul_ps(
+                half,
+                _mm512_add_ps(frac, one)
+            );
+
+        _mm512_storeu_ps(G + i, g);
+
+        vsum =
+            _mm512_add_ps(
+                vsum,
+                _mm512_add_ps(va, g)
+            );
+    }
+
+    alignas(64) float tmp[16];
+    _mm512_store_ps(tmp, vsum);
 
     float sum_a = 0.0f;
 
-    #pragma GCC ivdep
-    for (size_t i = 0; i < n; ++i) {
+    for (int k = 0; k < 16; ++k)
+        sum_a += tmp[k];
+
+    for (; i < n; ++i) {
+
         float prod = A[i] * B[i];
 
-        float g = 0.5f * (
-            prod / (1.0f + std::fabs(prod))
-            + 1.0f
-        );
+        float g =
+            0.5f *
+            (
+                prod / (1.0f + std::fabs(prod))
+                + 1.0f
+            );
 
         G[i] = g;
 
         sum_a += A[i] + g;
     }
 
-    const float avg_a = sum_a / static_cast<float>(n);
+    const float avg_a =
+        sum_a / static_cast<float>(n);
+
+    const __m512 vavg =
+        _mm512_set1_ps(avg_a);
 
     // -------------------------------------------------
-    // Pass 2:
-    // Fully fused pipeline
+    // Pass 2
     // -------------------------------------------------
 
     float prev_ap = A[0] + G[0];
@@ -126,7 +179,8 @@ void stu_grff(grff_args& args) {
     {
         float s = prev_ap;
 
-        float inv = 1.0f / (1.0f + std::fabs(s));
+        float inv =
+            1.0f / (1.0f + std::fabs(s));
 
         float b_prime =
             B[0] * (1.0f - G[0]) * avg_a;
@@ -142,16 +196,63 @@ void stu_grff(grff_args& args) {
         F[0] = (r > 0.0f) ? r : 0.0f;
     }
 
-    #pragma GCC ivdep
-    for (size_t i = 1; i < n; ++i) {
+    i = 1;
+
+    // -------------------------------------------------
+    // scalar dependency pipeline
+    // unavoidable because smooth uses prev
+    // -------------------------------------------------
+
+    for (; i + 4 <= n; i += 4) {
+
+        #pragma GCC unroll 4
+
+        for (int j = 0; j < 4; ++j) {
+
+            size_t idx = i + j;
+
+            float ap = A[idx] + G[idx];
+
+            float s =
+                0.5f * (ap + prev_ap);
+
+            prev_ap = ap;
+
+            float inv =
+                1.0f / (1.0f + std::fabs(s));
+
+            float b_prime =
+                B[idx] *
+                (1.0f - G[idx]) *
+                avg_a;
+
+            float c_prime =
+                C[idx] + s * inv;
+
+            float e =
+                (s * c_prime + b_prime) *
+                inv;
+
+            float r = c_prime - e;
+
+            F[idx] =
+                (r > 0.0f)
+                ? r
+                : 0.0f;
+        }
+    }
+
+    for (; i < n; ++i) {
 
         float ap = A[i] + G[i];
 
-        float s = 0.5f * (ap + prev_ap);
+        float s =
+            0.5f * (ap + prev_ap);
 
         prev_ap = ap;
 
-        float inv = 1.0f / (1.0f + std::fabs(s));
+        float inv =
+            1.0f / (1.0f + std::fabs(s));
 
         float b_prime =
             B[i] * (1.0f - G[i]) * avg_a;
@@ -164,7 +265,10 @@ void stu_grff(grff_args& args) {
 
         float r = c_prime - e;
 
-        F[i] = (r > 0.0f) ? r : 0.0f;
+        F[i] =
+            (r > 0.0f)
+            ? r
+            : 0.0f;
     }
 }
 
