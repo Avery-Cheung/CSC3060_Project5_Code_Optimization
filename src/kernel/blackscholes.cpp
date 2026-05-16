@@ -143,6 +143,17 @@ static inline void fast_CNDF(float x, float& out) {
         ? (1.0f - local)
         : local;
 }
+static inline void bs_cndf(float d, float& Nd, float inv_s2pi,
+                             float p, float a1, float a2,
+                             float a3, float a4, float a5) {
+    float L = fabsf(d);
+    float K = 1.0f / (1.0f + p * L);
+    float poly = K * (a1 + K * (a2 + K * (a3 + K * (a4 + K * a5))));
+    float n_prime = expf(-0.5f * d * d) * inv_s2pi;
+    float res = poly * n_prime;
+    Nd = (d < 0.0f) ? res : 1.0f - res;
+}
+
 void stu_BlkSchls(
     std::vector<float>& CallOptionPrice,
     std::vector<float>& PutOptionPrice,
@@ -150,80 +161,106 @@ void stu_BlkSchls(
     const std::vector<float>& strike,
     const std::vector<float>& rate,
     const std::vector<float>& volatility,
-    const std::vector<float>& time) 
+    const std::vector<float>& time)
 {
     const size_t n = spotPrice.size();
 
-    // 使用 restrict 关键字帮助编译器优化，避免别名检查
     const float* __restrict s = spotPrice.data();
     const float* __restrict k = strike.data();
     const float* __restrict r = rate.data();
     const float* __restrict v = volatility.data();
     const float* __restrict t = time.data();
-
     float* __restrict call = CallOptionPrice.data();
     float* __restrict put  = PutOptionPrice.data();
 
-    // 常量定义，确保使用单精度浮点数
-    const float inv_s2pi = 0.3989422804f; 
-    const float p        = 0.2316419f;
+    const float inv_s2pi = 0.3989422804f;
+    const float p_cnd    = 0.2316419f;
     const float a1       = 0.319381530f;
     const float a2       = -0.356563782f;
     const float a3       = 1.781477937f;
     const float a4       = -1.821255978f;
     const float a5       = 1.330274429f;
 
-    // 启用编译器矢量化
-    #pragma omp simd
-    for (size_t i = 0; i < n; ++i) {
-        float si = s[i];
-        float ki = k[i];
-        float ri = r[i];
-        float vi = v[i];
-        float ti = t[i];
+    const size_t limit = n & ~static_cast<size_t>(3);
+    size_t i = 0;
 
-        // 1. 基础参数计算
-        float sqrtT = sqrtf(ti);
-        float v_sqrtT = vi * sqrtT;
-        float inv_v_sqrtT = 1.0f / v_sqrtT;
-        
-        float logTerm = logf(si / ki);
-        float powerTerm = 0.5f * vi * vi;
-        
-        // d1 = (log(s/k) + (r + v^2/2)*t) / (v*sqrt(t))
-        float d1 = ( (ri + powerTerm) * ti + logTerm ) * inv_v_sqrtT;
-        float d2 = d1 - v_sqrtT;
+    for (; i < limit; i += 4) {
+        // ── Load 4 elements ──
+        float s0 = s[i], s1 = s[i+1], s2 = s[i+2], s3 = s[i+3];
+        float k0 = k[i], k1 = k[i+1], k2 = k[i+2], k3 = k[i+3];
+        float r0 = r[i], r1 = r[i+1], r2 = r[i+2], r3 = r[i+3];
+        float v0 = v[i], v1 = v[i+1], v2 = v[i+2], v3 = v[i+3];
+        float t0 = t[i], t1 = t[i+1], t2 = t[i+2], t3 = t[i+3];
 
-        // 2. 高效 CNDF 计算 (针对 d1 和 d2)
-        // 计算 Nd1
-        float L1 = fabsf(d1);
-        float K1 = 1.0f / (1.0f + p * L1);
-        // 使用 Horner 方案减少乘法
-        float poly1 = K1 * (a1 + K1 * (a2 + K1 * (a3 + K1 * (a4 + K1 * a5))));
-        float n_prime1 = expf(-0.5f * d1 * d1) * inv_s2pi;
-        float res1 = poly1 * n_prime1;
-        float Nd1 = (d1 < 0.0f) ? res1 : 1.0f - res1;
-
-        // 计算 Nd2
-        float L2 = fabsf(d2);
-        float K2 = 1.0f / (1.0f + p * L2);
-        float poly2 = K2 * (a1 + K2 * (a2 + K2 * (a3 + K2 * (a4 + K2 * a5))));
-        float n_prime2 = expf(-0.5f * d2 * d2) * inv_s2pi;
-        float res2 = poly2 * n_prime2;
-        float Nd2 = (d2 < 0.0f) ? res2 : 1.0f - res2;
-
-        // 3. 计算最终价格
-        float expRT = expf(-ri * ti);
-        float futureValue = ki * expRT;
-
-        float c_val = (si * Nd1) - (futureValue * Nd2);
-        
-        // 使用 Put-Call Parity (期权平价公式): Put = Call - Spot + Strike * exp(-rt)
-        // 这不仅快，而且在数学上是等价的
-        float pval = c_val - si + futureValue;
-
-        call[i] = c_val;
-        put[i]  = pval;
+        // ── Elem 0 ──
+        {
+            float sqT = sqrtf(t0);
+            float v_sqT = v0 * sqT;
+            float d1 = ((r0 + 0.5f * v0 * v0) * t0 + logf(s0 / k0)) / v_sqT;
+            float d2 = d1 - v_sqT;
+            float Nd1, Nd2;
+            bs_cndf(d1, Nd1, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            bs_cndf(d2, Nd2, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            float fv = k0 * expf(-r0 * t0);
+            float cv = s0 * Nd1 - fv * Nd2;
+            call[i] = cv;
+            put[i]  = cv - s0 + fv;
+        }
+        // ── Elem 1 ──
+        {
+            float sqT = sqrtf(t1);
+            float v_sqT = v1 * sqT;
+            float d1 = ((r1 + 0.5f * v1 * v1) * t1 + logf(s1 / k1)) / v_sqT;
+            float d2 = d1 - v_sqT;
+            float Nd1, Nd2;
+            bs_cndf(d1, Nd1, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            bs_cndf(d2, Nd2, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            float fv = k1 * expf(-r1 * t1);
+            float cv = s1 * Nd1 - fv * Nd2;
+            call[i+1] = cv;
+            put[i+1]  = cv - s1 + fv;
+        }
+        // ── Elem 2 ──
+        {
+            float sqT = sqrtf(t2);
+            float v_sqT = v2 * sqT;
+            float d1 = ((r2 + 0.5f * v2 * v2) * t2 + logf(s2 / k2)) / v_sqT;
+            float d2 = d1 - v_sqT;
+            float Nd1, Nd2;
+            bs_cndf(d1, Nd1, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            bs_cndf(d2, Nd2, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            float fv = k2 * expf(-r2 * t2);
+            float cv = s2 * Nd1 - fv * Nd2;
+            call[i+2] = cv;
+            put[i+2]  = cv - s2 + fv;
+        }
+        // ── Elem 3 ──
+        {
+            float sqT = sqrtf(t3);
+            float v_sqT = v3 * sqT;
+            float d1 = ((r3 + 0.5f * v3 * v3) * t3 + logf(s3 / k3)) / v_sqT;
+            float d2 = d1 - v_sqT;
+            float Nd1, Nd2;
+            bs_cndf(d1, Nd1, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            bs_cndf(d2, Nd2, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+            float fv = k3 * expf(-r3 * t3);
+            float cv = s3 * Nd1 - fv * Nd2;
+            call[i+3] = cv;
+            put[i+3]  = cv - s3 + fv;
+        }
+    }
+    for (; i < n; ++i) {
+        float sqT = sqrtf(t[i]);
+        float v_sqT = v[i] * sqT;
+        float d1 = ((r[i] + 0.5f * v[i] * v[i]) * t[i] + logf(s[i] / k[i])) / v_sqT;
+        float d2 = d1 - v_sqT;
+        float Nd1, Nd2;
+        bs_cndf(d1, Nd1, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+        bs_cndf(d2, Nd2, inv_s2pi, p_cnd, a1, a2, a3, a4, a5);
+        float fv = k[i] * expf(-r[i] * t[i]);
+        float cv = s[i] * Nd1 - fv * Nd2;
+        call[i] = cv;
+        put[i]  = cv - s[i] + fv;
     }
 }
 
