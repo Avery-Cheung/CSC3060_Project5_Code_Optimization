@@ -55,12 +55,19 @@ void naive_bitwise(std::span<std::int8_t> result,
 }
 
 // TODO: Optimize the bitwise function
+static inline std::uint64_t process_chunk(std::uint64_t va, std::uint64_t vb,
+                                           std::uint64_t mLo, std::uint64_t mHi) {
+    std::uint64_t shared = va & vb;
+    std::uint64_t either = va | vb;
+    std::uint64_t diff   = va ^ vb;
+    std::uint64_t mixed0 = (diff & mLo) | (~shared & ~mLo);
+    std::uint64_t mixed1 = ((either ^ mHi) & (shared | ~mHi)) ^ diff;
+    return mixed0 ^ mixed1;
+}
+
 void stu_bitwise(std::span<std::int8_t> result,
                  std::span<const std::int8_t> a,
                  std::span<const std::int8_t> b) {
-    constexpr std::uint64_t maskLo64 = 0x5A5A5A5A5A5A5A5AULL;
-    constexpr std::uint64_t maskHi64 = 0xC3C3C3C3C3C3C3C3ULL;
-
     const std::size_t n = std::min({result.size(), a.size(), b.size()});
     if (n == 0) return;
 
@@ -68,82 +75,71 @@ void stu_bitwise(std::span<std::int8_t> result,
     const std::uint8_t* pb = reinterpret_cast<const std::uint8_t*>(b.data());
     std::uint8_t* pr = reinterpret_cast<std::uint8_t*>(result.data());
 
-    const std::size_t chunk = sizeof(std::uint64_t);
-    const std::size_t limit = (n / chunk) * chunk;
+    constexpr std::uint64_t mLo = 0x5A5A5A5A5A5A5A5AULL;
+    constexpr std::uint64_t mHi = 0xC3C3C3C3C3C3C3C3ULL;
+    constexpr std::size_t CHUNK = sizeof(std::uint64_t);
+    const std::size_t limit = (n / CHUNK) * CHUNK;
 
     std::size_t i = 0;
 
-    // 4x unrolling 主循環
-    for (; i + 4 * chunk <= limit; i += 4 * chunk) {
+    // ── 8x unrolled: process 64 bytes per iteration ─────────────────
+    for (; i + 8 * CHUNK <= limit; i += 8 * CHUNK) {
+        std::uint64_t va0, vb0, va1, vb1, va2, vb2, va3, vb3;
+        std::uint64_t va4, vb4, va5, vb5, va6, vb6, va7, vb7;
 
-        std::uint64_t va0, vb0;
-        std::uint64_t va1, vb1;
-        std::uint64_t va2, vb2;
-        std::uint64_t va3, vb3;
+        __builtin_memcpy(&va0, pa + i + 0*CHUNK, CHUNK);
+        __builtin_memcpy(&vb0, pb + i + 0*CHUNK, CHUNK);
+        __builtin_memcpy(&va1, pa + i + 1*CHUNK, CHUNK);
+        __builtin_memcpy(&vb1, pb + i + 1*CHUNK, CHUNK);
+        __builtin_memcpy(&va2, pa + i + 2*CHUNK, CHUNK);
+        __builtin_memcpy(&vb2, pb + i + 2*CHUNK, CHUNK);
+        __builtin_memcpy(&va3, pa + i + 3*CHUNK, CHUNK);
+        __builtin_memcpy(&vb3, pb + i + 3*CHUNK, CHUNK);
+        __builtin_memcpy(&va4, pa + i + 4*CHUNK, CHUNK);
+        __builtin_memcpy(&vb4, pb + i + 4*CHUNK, CHUNK);
+        __builtin_memcpy(&va5, pa + i + 5*CHUNK, CHUNK);
+        __builtin_memcpy(&vb5, pb + i + 5*CHUNK, CHUNK);
+        __builtin_memcpy(&va6, pa + i + 6*CHUNK, CHUNK);
+        __builtin_memcpy(&vb6, pb + i + 6*CHUNK, CHUNK);
+        __builtin_memcpy(&va7, pa + i + 7*CHUNK, CHUNK);
+        __builtin_memcpy(&vb7, pb + i + 7*CHUNK, CHUNK);
 
-        std::memcpy(&va0, pa + i + 0 * chunk, chunk);
-        std::memcpy(&vb0, pb + i + 0 * chunk, chunk);
+        std::uint64_t r0 = process_chunk(va0, vb0, mLo, mHi);
+        std::uint64_t r1 = process_chunk(va1, vb1, mLo, mHi);
+        std::uint64_t r2 = process_chunk(va2, vb2, mLo, mHi);
+        std::uint64_t r3 = process_chunk(va3, vb3, mLo, mHi);
+        std::uint64_t r4 = process_chunk(va4, vb4, mLo, mHi);
+        std::uint64_t r5 = process_chunk(va5, vb5, mLo, mHi);
+        std::uint64_t r6 = process_chunk(va6, vb6, mLo, mHi);
+        std::uint64_t r7 = process_chunk(va7, vb7, mLo, mHi);
 
-        std::memcpy(&va1, pa + i + 1 * chunk, chunk);
-        std::memcpy(&vb1, pb + i + 1 * chunk, chunk);
-
-        std::memcpy(&va2, pa + i + 2 * chunk, chunk);
-        std::memcpy(&vb2, pb + i + 2 * chunk, chunk);
-
-        std::memcpy(&va3, pa + i + 3 * chunk, chunk);
-        std::memcpy(&vb3, pb + i + 3 * chunk, chunk);
-
-        auto process = [&](std::uint64_t va, std::uint64_t vb, std::size_t off) {
-            std::uint64_t shared = va & vb;
-            std::uint64_t either = va | vb;
-            std::uint64_t diff   = va ^ vb;
-
-            std::uint64_t mixed0 = (diff & maskLo64) | (~shared & ~maskLo64);
-            std::uint64_t mixed1 = ((either ^ maskHi64) & (shared | ~maskHi64)) ^ diff;
-
-            std::uint64_t res = mixed0 ^ mixed1;
-
-            std::memcpy(pr + i + off, &res, chunk);
-        };
-
-        process(va0, vb0, 0 * chunk);
-        process(va1, vb1, 1 * chunk);
-        process(va2, vb2, 2 * chunk);
-        process(va3, vb3, 3 * chunk);
+        __builtin_memcpy(pr + i + 0*CHUNK, &r0, CHUNK);
+        __builtin_memcpy(pr + i + 1*CHUNK, &r1, CHUNK);
+        __builtin_memcpy(pr + i + 2*CHUNK, &r2, CHUNK);
+        __builtin_memcpy(pr + i + 3*CHUNK, &r3, CHUNK);
+        __builtin_memcpy(pr + i + 4*CHUNK, &r4, CHUNK);
+        __builtin_memcpy(pr + i + 5*CHUNK, &r5, CHUNK);
+        __builtin_memcpy(pr + i + 6*CHUNK, &r6, CHUNK);
+        __builtin_memcpy(pr + i + 7*CHUNK, &r7, CHUNK);
     }
-
-    // 尾段 1 chunk
-    for (; i < limit; i += chunk) {
+    // ── Tail chunks ────────────────────────────────────────────────
+    for (; i < limit; i += CHUNK) {
         std::uint64_t va, vb;
-
-        std::memcpy(&va, pa + i, chunk);
-        std::memcpy(&vb, pb + i, chunk);
-
-        std::uint64_t shared = va & vb;
-        std::uint64_t either = va | vb;
-        std::uint64_t diff   = va ^ vb;
-
-        std::uint64_t mixed0 = (diff & maskLo64) | (~shared & ~maskLo64);
-        std::uint64_t mixed1 = ((either ^ maskHi64) & (shared | ~maskHi64)) ^ diff;
-
-        std::uint64_t res = mixed0 ^ mixed1;
-
-        std::memcpy(pr + i, &res, chunk);
+        __builtin_memcpy(&va, pa + i, CHUNK);
+        __builtin_memcpy(&vb, pb + i, CHUNK);
+        std::uint64_t r = process_chunk(va, vb, mLo, mHi);
+        __builtin_memcpy(pr + i, &r, CHUNK);
     }
-
-    // tail bytes
+    // ── Tail bytes ─────────────────────────────────────────────────
     for (; i < n; ++i) {
         std::uint8_t ua = pa[i];
         std::uint8_t ub = pb[i];
-
         std::uint8_t shared = ua & ub;
         std::uint8_t either = ua | ub;
         std::uint8_t diff   = ua ^ ub;
-
-        std::uint8_t mixed0 = (diff & 0x5A) | (~shared & ~0x5A);
-        std::uint8_t mixed1 = ((either ^ 0xC3) & (shared | ~0xC3)) ^ diff;
-
-        pr[i] = mixed0 ^ mixed1;
+        std::uint8_t m0 = (diff & 0x5Au) | (~shared & ~0x5Au);
+        std::uint8_t m1 = ((either ^ 0xC3u) & (shared | ~0xC3u)) ^ diff;
+        pr[i] = m0 ^ m1;
     }
 }
 

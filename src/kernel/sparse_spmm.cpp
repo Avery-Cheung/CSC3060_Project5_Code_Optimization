@@ -264,32 +264,73 @@ void stu_csr_spmm(const CSRMatrix &csr,
     const float * __restrict dense_ptr = dense.data();
     float * __restrict out_ptr = out.data();
 
-    const size_t row_bytes = dense_cols * sizeof(float);
     for (int r = 0; r < static_cast<int>(rows); ++r) {
-        float *out_row = out_ptr + static_cast<size_t>(r) * dense_cols;
-        std::memset(out_row, 0, row_bytes);
-
+        float * __restrict out_row = out_ptr + static_cast<size_t>(r) * dense_cols;
         const int start = row_ptr[r];
-        const int end = row_ptr[r + 1];
-        for (int p = start; p < end; ++p) {
-            const int c = col_idx[p];
-            const float a = values[p];
-            const float * __restrict b_row = dense_ptr + static_cast<size_t>(c) * dense_cols;
+        const int end   = row_ptr[r + 1];
+
+        // First nonzero: assign (not +=) to avoid zeroing the whole row
+        if (start < end) {
+            const int c = col_idx[start];
+            const float a = values[start];
+            const float * __restrict b = dense_ptr + static_cast<size_t>(c) * dense_cols;
             float * __restrict o = out_row;
 
             size_t n = 0;
-            for (; n + 7 < dense_cols; n += 8) {
-                o[n + 0] += a * b_row[n + 0];
-                o[n + 1] += a * b_row[n + 1];
-                o[n + 2] += a * b_row[n + 2];
-                o[n + 3] += a * b_row[n + 3];
-                o[n + 4] += a * b_row[n + 4];
-                o[n + 5] += a * b_row[n + 5];
-                o[n + 6] += a * b_row[n + 6];
-                o[n + 7] += a * b_row[n + 7];
+            for (; n + 15 < dense_cols; n += 16) {
+                o[n+ 0] = a * b[n+ 0];
+                o[n+ 1] = a * b[n+ 1];
+                o[n+ 2] = a * b[n+ 2];
+                o[n+ 3] = a * b[n+ 3];
+                o[n+ 4] = a * b[n+ 4];
+                o[n+ 5] = a * b[n+ 5];
+                o[n+ 6] = a * b[n+ 6];
+                o[n+ 7] = a * b[n+ 7];
+                o[n+ 8] = a * b[n+ 8];
+                o[n+ 9] = a * b[n+ 9];
+                o[n+10] = a * b[n+10];
+                o[n+11] = a * b[n+11];
+                o[n+12] = a * b[n+12];
+                o[n+13] = a * b[n+13];
+                o[n+14] = a * b[n+14];
+                o[n+15] = a * b[n+15];
             }
             for (; n < dense_cols; ++n) {
-                o[n] += a * b_row[n];
+                o[n] = a * b[n];
+            }
+        } else {
+            // Empty row: zero it
+            std::memset(out_row, 0, dense_cols * sizeof(float));
+        }
+
+        // Remaining nonzeros: accumulate (+=)
+        for (int p = start + 1; p < end; ++p) {
+            const int c = col_idx[p];
+            const float a = values[p];
+            const float * __restrict b = dense_ptr + static_cast<size_t>(c) * dense_cols;
+            float * __restrict o = out_row;
+
+            size_t n = 0;
+            for (; n + 15 < dense_cols; n += 16) {
+                o[n+ 0] += a * b[n+ 0];
+                o[n+ 1] += a * b[n+ 1];
+                o[n+ 2] += a * b[n+ 2];
+                o[n+ 3] += a * b[n+ 3];
+                o[n+ 4] += a * b[n+ 4];
+                o[n+ 5] += a * b[n+ 5];
+                o[n+ 6] += a * b[n+ 6];
+                o[n+ 7] += a * b[n+ 7];
+                o[n+ 8] += a * b[n+ 8];
+                o[n+ 9] += a * b[n+ 9];
+                o[n+10] += a * b[n+10];
+                o[n+11] += a * b[n+11];
+                o[n+12] += a * b[n+12];
+                o[n+13] += a * b[n+13];
+                o[n+14] += a * b[n+14];
+                o[n+15] += a * b[n+15];
+            }
+            for (; n < dense_cols; ++n) {
+                o[n] += a * b[n];
             }
         }
     }
