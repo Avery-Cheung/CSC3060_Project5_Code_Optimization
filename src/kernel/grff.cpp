@@ -81,6 +81,7 @@ void naive_grff(grff_args& args) {
 // -------------------------------------------------------------------------
 
 void stu_grff(grff_args& args) {
+
     const size_t n = args.a_features.size();
     if (n == 0) return;
 
@@ -94,59 +95,62 @@ void stu_grff(grff_args& args) {
     float* __restrict F = args.f_output.data();
     float* __restrict G = args.scratch.data();
 
-    constexpr size_t STEP = 16;
+    constexpr size_t STEP = 8;
 
-    const __m512 one = _mm512_set1_ps(1.0f);
-    const __m512 half = _mm512_set1_ps(0.5f);
-    const __m512 zero = _mm512_setzero_ps();
+    const __m256 vone  = _mm256_set1_ps(1.0f);
+    const __m256 vhalf = _mm256_set1_ps(0.5f);
 
     // -------------------------------------------------
-    // Pass 1:
-    // G + sum
+    // Pass 1
+    // Compute G + sum
     // -------------------------------------------------
 
-    __m512 vsum = _mm512_setzero_ps();
+    __m256 vsum = _mm256_setzero_ps();
 
     size_t i = 0;
 
     for (; i + STEP <= n; i += STEP) {
 
-        __m512 va = _mm512_loadu_ps(A + i);
-        __m512 vb = _mm512_loadu_ps(B + i);
+        __m256 va = _mm256_loadu_ps(A + i);
+        __m256 vb = _mm256_loadu_ps(B + i);
 
-        __m512 prod = _mm512_mul_ps(va, vb);
+        __m256 prod =
+            _mm256_mul_ps(va, vb);
 
-        __m512 abs_prod =
-            _mm512_abs_ps(prod);
-
-        __m512 denom =
-            _mm512_add_ps(one, abs_prod);
-
-        __m512 frac =
-            _mm512_div_ps(prod, denom);
-
-        __m512 g =
-            _mm512_mul_ps(
-                half,
-                _mm512_add_ps(frac, one)
+        // abs(x)
+        __m256 abs_prod =
+            _mm256_andnot_ps(
+                _mm256_set1_ps(-0.0f),
+                prod
             );
 
-        _mm512_storeu_ps(G + i, g);
+        __m256 denom =
+            _mm256_add_ps(vone, abs_prod);
+
+        __m256 frac =
+            _mm256_div_ps(prod, denom);
+
+        __m256 g =
+            _mm256_mul_ps(
+                vhalf,
+                _mm256_add_ps(frac, vone)
+            );
+
+        _mm256_storeu_ps(G + i, g);
 
         vsum =
-            _mm512_add_ps(
+            _mm256_add_ps(
                 vsum,
-                _mm512_add_ps(va, g)
+                _mm256_add_ps(va, g)
             );
     }
 
-    alignas(64) float tmp[16];
-    _mm512_store_ps(tmp, vsum);
+    alignas(32) float buf[8];
+    _mm256_store_ps(buf, vsum);
 
-    float sum_a = 0.0f;
-
-    for (int k = 0; k < 16; ++k)
-        sum_a += tmp[k];
+    float sum_a =
+        buf[0] + buf[1] + buf[2] + buf[3] +
+        buf[4] + buf[5] + buf[6] + buf[7];
 
     for (; i < n; ++i) {
 
@@ -155,7 +159,8 @@ void stu_grff(grff_args& args) {
         float g =
             0.5f *
             (
-                prod / (1.0f + std::fabs(prod))
+                prod /
+                (1.0f + std::fabs(prod))
                 + 1.0f
             );
 
@@ -167,9 +172,6 @@ void stu_grff(grff_args& args) {
     const float avg_a =
         sum_a / static_cast<float>(n);
 
-    const __m512 vavg =
-        _mm512_set1_ps(avg_a);
-
     // -------------------------------------------------
     // Pass 2
     // -------------------------------------------------
@@ -180,27 +182,33 @@ void stu_grff(grff_args& args) {
         float s = prev_ap;
 
         float inv =
-            1.0f / (1.0f + std::fabs(s));
+            1.0f /
+            (1.0f + std::fabs(s));
 
         float b_prime =
-            B[0] * (1.0f - G[0]) * avg_a;
+            B[0] *
+            (1.0f - G[0]) *
+            avg_a;
 
         float c_prime =
             C[0] + s * inv;
 
         float e =
-            (s * c_prime + b_prime) * inv;
+            (s * c_prime + b_prime)
+            * inv;
 
         float r = c_prime - e;
 
-        F[0] = (r > 0.0f) ? r : 0.0f;
+        F[0] =
+            (r > 0.0f)
+            ? r
+            : 0.0f;
     }
 
     i = 1;
 
     // -------------------------------------------------
-    // scalar dependency pipeline
-    // unavoidable because smooth uses prev
+    // heavily unrolled scalar pipeline
     // -------------------------------------------------
 
     for (; i + 4 <= n; i += 4) {
@@ -211,15 +219,18 @@ void stu_grff(grff_args& args) {
 
             size_t idx = i + j;
 
-            float ap = A[idx] + G[idx];
+            float ap =
+                A[idx] + G[idx];
 
             float s =
-                0.5f * (ap + prev_ap);
+                0.5f *
+                (ap + prev_ap);
 
             prev_ap = ap;
 
             float inv =
-                1.0f / (1.0f + std::fabs(s));
+                1.0f /
+                (1.0f + std::fabs(s));
 
             float b_prime =
                 B[idx] *
@@ -227,13 +238,15 @@ void stu_grff(grff_args& args) {
                 avg_a;
 
             float c_prime =
-                C[idx] + s * inv;
+                C[idx] +
+                s * inv;
 
             float e =
-                (s * c_prime + b_prime) *
-                inv;
+                (s * c_prime + b_prime)
+                * inv;
 
-            float r = c_prime - e;
+            float r =
+                c_prime - e;
 
             F[idx] =
                 (r > 0.0f)
@@ -244,26 +257,34 @@ void stu_grff(grff_args& args) {
 
     for (; i < n; ++i) {
 
-        float ap = A[i] + G[i];
+        float ap =
+            A[i] + G[i];
 
         float s =
-            0.5f * (ap + prev_ap);
+            0.5f *
+            (ap + prev_ap);
 
         prev_ap = ap;
 
         float inv =
-            1.0f / (1.0f + std::fabs(s));
+            1.0f /
+            (1.0f + std::fabs(s));
 
         float b_prime =
-            B[i] * (1.0f - G[i]) * avg_a;
+            B[i] *
+            (1.0f - G[i]) *
+            avg_a;
 
         float c_prime =
-            C[i] + s * inv;
+            C[i] +
+            s * inv;
 
         float e =
-            (s * c_prime + b_prime) * inv;
+            (s * c_prime + b_prime)
+            * inv;
 
-        float r = c_prime - e;
+        float r =
+            c_prime - e;
 
         F[i] =
             (r > 0.0f)
