@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#pragma GCC target("avx2")
+#pragma GCC optimize("O3")
 #include <immintrin.h>
 
 void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_t seed) {
