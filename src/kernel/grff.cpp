@@ -2,9 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
-#pragma GCC target("avx2")
-#pragma GCC optimize("O3")
-#include <immintrin.h>
+
 
 void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_t seed) {
     if (!args) return;
@@ -90,79 +88,82 @@ void stu_grff(grff_args& args) {
     args.f_output.resize(n);
     args.scratch.resize(n);
 
-    const float* __restrict A = args.a_features.data();
-    const float* __restrict B = args.b_features.data();
-    const float* __restrict C = args.c_features.data();
+    const float* __restrict A =
+        args.a_features.data();
 
-    float* __restrict F = args.f_output.data();
-    float* __restrict G = args.scratch.data();
+    const float* __restrict B =
+        args.b_features.data();
 
-    constexpr size_t STEP = 8;
+    const float* __restrict C =
+        args.c_features.data();
 
-    const __m256 vone  = _mm256_set1_ps(1.0f);
-    const __m256 vhalf = _mm256_set1_ps(0.5f);
+    float* __restrict F =
+        args.f_output.data();
+
+    float* __restrict G =
+        args.scratch.data();
 
     // -------------------------------------------------
     // Pass 1
-    // Compute G + sum
+    // G + sum
     // -------------------------------------------------
 
-    __m256 vsum = _mm256_setzero_ps();
+    float sum_a = 0.0f;
 
     size_t i = 0;
 
-    for (; i + STEP <= n; i += STEP) {
+    constexpr size_t UNROLL = 8;
 
-        __m256 va = _mm256_loadu_ps(A + i);
-        __m256 vb = _mm256_loadu_ps(B + i);
+    #pragma GCC ivdep
+    for (; i + UNROLL <= n; i += UNROLL) {
 
-        __m256 prod =
-            _mm256_mul_ps(va, vb);
+        float p0 = A[i]     * B[i];
+        float p1 = A[i + 1] * B[i + 1];
+        float p2 = A[i + 2] * B[i + 2];
+        float p3 = A[i + 3] * B[i + 3];
+        float p4 = A[i + 4] * B[i + 4];
+        float p5 = A[i + 5] * B[i + 5];
+        float p6 = A[i + 6] * B[i + 6];
+        float p7 = A[i + 7] * B[i + 7];
 
-        // abs(x)
-        __m256 abs_prod =
-            _mm256_andnot_ps(
-                _mm256_set1_ps(-0.0f),
-                prod
-            );
+        float g0 = 0.5f * (p0 / (1.0f + std::fabs(p0)) + 1.0f);
+        float g1 = 0.5f * (p1 / (1.0f + std::fabs(p1)) + 1.0f);
+        float g2 = 0.5f * (p2 / (1.0f + std::fabs(p2)) + 1.0f);
+        float g3 = 0.5f * (p3 / (1.0f + std::fabs(p3)) + 1.0f);
+        float g4 = 0.5f * (p4 / (1.0f + std::fabs(p4)) + 1.0f);
+        float g5 = 0.5f * (p5 / (1.0f + std::fabs(p5)) + 1.0f);
+        float g6 = 0.5f * (p6 / (1.0f + std::fabs(p6)) + 1.0f);
+        float g7 = 0.5f * (p7 / (1.0f + std::fabs(p7)) + 1.0f);
 
-        __m256 denom =
-            _mm256_add_ps(vone, abs_prod);
+        G[i]     = g0;
+        G[i + 1] = g1;
+        G[i + 2] = g2;
+        G[i + 3] = g3;
+        G[i + 4] = g4;
+        G[i + 5] = g5;
+        G[i + 6] = g6;
+        G[i + 7] = g7;
 
-        __m256 frac =
-            _mm256_div_ps(prod, denom);
-
-        __m256 g =
-            _mm256_mul_ps(
-                vhalf,
-                _mm256_add_ps(frac, vone)
-            );
-
-        _mm256_storeu_ps(G + i, g);
-
-        vsum =
-            _mm256_add_ps(
-                vsum,
-                _mm256_add_ps(va, g)
-            );
+        sum_a +=
+            (A[i]     + g0) +
+            (A[i + 1] + g1) +
+            (A[i + 2] + g2) +
+            (A[i + 3] + g3) +
+            (A[i + 4] + g4) +
+            (A[i + 5] + g5) +
+            (A[i + 6] + g6) +
+            (A[i + 7] + g7);
     }
-
-    alignas(32) float buf[8];
-    _mm256_store_ps(buf, vsum);
-
-    float sum_a =
-        buf[0] + buf[1] + buf[2] + buf[3] +
-        buf[4] + buf[5] + buf[6] + buf[7];
 
     for (; i < n; ++i) {
 
-        float prod = A[i] * B[i];
+        float p = A[i] * B[i];
 
         float g =
             0.5f *
             (
-                prod /
-                (1.0f + std::fabs(prod))
+                p /
+                (1.0f + std::fabs(p))
                 + 1.0f
             );
 
@@ -176,9 +177,11 @@ void stu_grff(grff_args& args) {
 
     // -------------------------------------------------
     // Pass 2
+    // fused pipeline
     // -------------------------------------------------
 
-    float prev_ap = A[0] + G[0];
+    float prev_ap =
+        A[0] + G[0];
 
     {
         float s = prev_ap;
@@ -199,7 +202,8 @@ void stu_grff(grff_args& args) {
             (s * c_prime + b_prime)
             * inv;
 
-        float r = c_prime - e;
+        float r =
+            c_prime - e;
 
         F[0] =
             (r > 0.0f)
@@ -210,51 +214,78 @@ void stu_grff(grff_args& args) {
     i = 1;
 
     // -------------------------------------------------
-    // heavily unrolled scalar pipeline
+    // manually pipelined
     // -------------------------------------------------
 
+    #pragma GCC ivdep
     for (; i + 4 <= n; i += 4) {
 
-        #pragma GCC unroll 4
+        float ap0 = A[i]     + G[i];
+        float s0  = 0.5f * (ap0 + prev_ap);
+        prev_ap = ap0;
 
-        for (int j = 0; j < 4; ++j) {
+        float ap1 = A[i + 1] + G[i + 1];
+        float s1  = 0.5f * (ap1 + prev_ap);
+        prev_ap = ap1;
 
-            size_t idx = i + j;
+        float ap2 = A[i + 2] + G[i + 2];
+        float s2  = 0.5f * (ap2 + prev_ap);
+        prev_ap = ap2;
 
-            float ap =
-                A[idx] + G[idx];
+        float ap3 = A[i + 3] + G[i + 3];
+        float s3  = 0.5f * (ap3 + prev_ap);
+        prev_ap = ap3;
 
-            float s =
-                0.5f *
-                (ap + prev_ap);
+        float inv0 = 1.0f / (1.0f + std::fabs(s0));
+        float inv1 = 1.0f / (1.0f + std::fabs(s1));
+        float inv2 = 1.0f / (1.0f + std::fabs(s2));
+        float inv3 = 1.0f / (1.0f + std::fabs(s3));
 
-            prev_ap = ap;
+        float cp0 = C[i]     + s0 * inv0;
+        float cp1 = C[i + 1] + s1 * inv1;
+        float cp2 = C[i + 2] + s2 * inv2;
+        float cp3 = C[i + 3] + s3 * inv3;
 
-            float inv =
-                1.0f /
-                (1.0f + std::fabs(s));
+        float bp0 =
+            B[i] *
+            (1.0f - G[i]) *
+            avg_a;
 
-            float b_prime =
-                B[idx] *
-                (1.0f - G[idx]) *
-                avg_a;
+        float bp1 =
+            B[i + 1] *
+            (1.0f - G[i + 1]) *
+            avg_a;
 
-            float c_prime =
-                C[idx] +
-                s * inv;
+        float bp2 =
+            B[i + 2] *
+            (1.0f - G[i + 2]) *
+            avg_a;
 
-            float e =
-                (s * c_prime + b_prime)
-                * inv;
+        float bp3 =
+            B[i + 3] *
+            (1.0f - G[i + 3]) *
+            avg_a;
 
-            float r =
-                c_prime - e;
+        float r0 =
+            cp0 -
+            ((s0 * cp0 + bp0) * inv0);
 
-            F[idx] =
-                (r > 0.0f)
-                ? r
-                : 0.0f;
-        }
+        float r1 =
+            cp1 -
+            ((s1 * cp1 + bp1) * inv1);
+
+        float r2 =
+            cp2 -
+            ((s2 * cp2 + bp2) * inv2);
+
+        float r3 =
+            cp3 -
+            ((s3 * cp3 + bp3) * inv3);
+
+        F[i]     = (r0 > 0.0f) ? r0 : 0.0f;
+        F[i + 1] = (r1 > 0.0f) ? r1 : 0.0f;
+        F[i + 2] = (r2 > 0.0f) ? r2 : 0.0f;
+        F[i + 3] = (r3 > 0.0f) ? r3 : 0.0f;
     }
 
     for (; i < n; ++i) {
@@ -272,21 +303,18 @@ void stu_grff(grff_args& args) {
             1.0f /
             (1.0f + std::fabs(s));
 
+        float c_prime =
+            C[i] + s * inv;
+
         float b_prime =
             B[i] *
             (1.0f - G[i]) *
             avg_a;
 
-        float c_prime =
-            C[i] +
-            s * inv;
-
-        float e =
-            (s * c_prime + b_prime)
-            * inv;
-
         float r =
-            c_prime - e;
+            c_prime -
+            ((s * c_prime + b_prime)
+            * inv);
 
         F[i] =
             (r > 0.0f)
