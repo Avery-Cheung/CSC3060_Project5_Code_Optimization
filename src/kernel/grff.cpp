@@ -82,114 +82,152 @@ void naive_grff(grff_args& args) {
 
 void stu_grff(grff_args& args) {
 
-    const size_t n = args.a_features.size();
+    const size_t len =
+        args.a_features.size();
 
-    if (n == 0) return;
+    if (len == 0) {
+        return;
+    }
 
-    static thread_local std::vector<float> fused;
-    fused.resize(n);
+    static thread_local std::vector<float> fused_buffer;
+    fused_buffer.resize(len);
 
-    const float* __restrict__ a = args.a_features.data();
-    const float* __restrict__ b = args.b_features.data();
-    const float* __restrict__ c = args.c_features.data();
+    const float* __restrict__ feat_a =
+        args.a_features.data();
 
-    float* __restrict__ out = args.f_output.data();
-    float* __restrict__ buf = fused.data();
+    const float* __restrict__ feat_b =
+        args.b_features.data();
 
-    constexpr float half = 0.5f;
-    constexpr float one  = 1.0f;
-    constexpr float zero = 0.0f;
+    const float* __restrict__ feat_c =
+        args.c_features.data();
 
-    // =====================================================
-    // pass 1
-    // =====================================================
+    float* __restrict__ result_ptr =
+        args.f_output.data();
 
-    float sum = 0.0f;
+    float* __restrict__ fused_ptr =
+        fused_buffer.data();
 
-    #pragma omp simd reduction(+:sum)
-    for (size_t i = 0; i < n; ++i) {
+    float accum =
+        0.0f;
 
-        const float ab = a[i] * b[i];
+    // =====================================
+    // stage 1:
+    // gate + residual fusion
+    // =====================================
+
+    for (size_t idx = 0; idx < len; ++idx) {
+
+        const float product =
+            feat_a[idx] * feat_b[idx];
 
         const float gate =
-            half * (
-                ab / (one + __builtin_fabsf(ab))
-                + one
+            0.5f *
+            (
+                product /
+                (1.0f + std::abs(product))
+                + 1.0f
             );
 
-        const float fused_val = a[i] + gate;
+        const float fused =
+            feat_a[idx] + gate;
 
-        buf[i] = fused_val;
+        fused_ptr[idx] = fused;
 
-        sum += fused_val;
+        accum += fused;
     }
 
-    const float mean = sum / static_cast<float>(n);
+    const float global_mean =
+        accum / static_cast<float>(len);
 
-    // =====================================================
-    // pass 2
-    // =====================================================
+    // =====================================
+    // stage 2:
+    // smoothing + reconstruction
+    // =====================================
 
-    float prev = buf[0];
+    float previous =
+        fused_ptr[0];
 
     {
-        const float smooth = prev;
+        const float smoothed =
+            previous;
 
-        const float gate = smooth - a[0];
+        const float recovered_gate =
+            previous - feat_a[0];
 
-        const float denom =
-            one + __builtin_fabsf(smooth);
+        const float magnitude =
+            std::abs(smoothed);
 
-        const float context =
-            c[0] + smooth / denom;
+        const float denominator =
+            1.0f + magnitude;
 
-        const float suppress =
-            b[0] * (one - gate) * mean;
+        const float contextual =
+            feat_c[0] +
+            smoothed / denominator;
 
-        const float hidden =
-            smooth * context;
+        const float suppressed =
+            feat_b[0] *
+            (1.0f - recovered_gate) *
+            global_mean;
 
-        const float norm =
-            (hidden + suppress) / denom;
+        const float interacted =
+            smoothed * contextual;
 
-        const float val =
-            context - norm;
+        const float normalized =
+            (interacted + suppressed) /
+            denominator;
 
-        out[0] = val > zero ? val : zero;
+        const float output_value =
+            contextual - normalized;
+
+        result_ptr[0] =
+            std::max(output_value, 0.0f);
     }
 
-    #pragma omp simd
-    for (size_t i = 1; i < n; ++i) {
+    for (size_t idx = 1; idx < len; ++idx) {
 
-        const float curr = buf[i];
+        const float current =
+            fused_ptr[idx];
 
-        const float smooth =
-            half * (curr + prev);
+        const float smoothed =
+            0.5f *
+            (
+                current +
+                previous
+            );
 
-        prev = curr;
+        previous =
+            current;
 
-        const float gate =
-            curr - a[i];
+        const float recovered_gate =
+            current - feat_a[idx];
 
-        const float denom =
-            one + __builtin_fabsf(smooth);
+        const float magnitude =
+            std::abs(smoothed);
 
-        const float context =
-            c[i] + smooth / denom;
+        const float denominator =
+            1.0f + magnitude;
 
-        const float suppress =
-            b[i] * (one - gate) * mean;
+        const float contextual =
+            feat_c[idx] +
+            smoothed / denominator;
 
-        const float hidden =
-            smooth * context;
+        const float suppressed =
+            feat_b[idx] *
+            (1.0f - recovered_gate) *
+            global_mean;
 
-        const float norm =
-            (hidden + suppress) / denom;
+        const float interacted =
+            smoothed * contextual;
 
-        const float val =
-            context - norm;
+        const float normalized =
+            (interacted + suppressed) /
+            denominator;
 
-        out[i] = val > zero ? val : zero;
+        const float output_value =
+            contextual - normalized;
+
+        result_ptr[idx] =
+            std::max(output_value, 0.0f);
     }
 }
 
