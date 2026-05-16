@@ -84,56 +84,87 @@ void stu_grff(grff_args& args) {
     if (n == 0) return;
 
     args.f_output.resize(n);
-    args.scratch.resize(n * 2);
+    args.scratch.resize(n);
 
     const float* __restrict A = args.a_features.data();
     const float* __restrict B = args.b_features.data();
     const float* __restrict C = args.c_features.data();
+
     float* __restrict F = args.f_output.data();
-    float* __restrict G_arr = args.scratch.data();         // G[i]
-    float* __restrict A_prime = G_arr + n;                  // A_prime[i]
+    float* __restrict G = args.scratch.data();
 
-    // ── Pass 1: G, A_prime, sum — formula identical to naive Stage 1-3 ─────
+    // -------------------------------------------------
+    // Pass 1:
+    // Compute G + accumulate avg
+    // -------------------------------------------------
+
     float sum_a = 0.0f;
-    size_t i = 0;
 
-    for (; i < n; ++i) {
+    #pragma GCC ivdep
+    for (size_t i = 0; i < n; ++i) {
         float prod = A[i] * B[i];
-        G_arr[i] = 0.5f * (prod / (1.0f + std::fabs(prod)) + 1.0f);
-        A_prime[i] = A[i] + G_arr[i];
-        sum_a += A_prime[i];
+
+        float g = 0.5f * (
+            prod / (1.0f + std::fabs(prod))
+            + 1.0f
+        );
+
+        G[i] = g;
+
+        sum_a += A[i] + g;
     }
 
     const float avg_a = sum_a / static_cast<float>(n);
 
-    // ── Pass 2: In-place smooth, reverse traversal ─────────────────────────
-    // Smooth[0] = A_prime[0]; Smooth[i] = (A_prime[i]+A_prime[i-1])*0.5
-    float* __restrict smooth = A_prime;
-    for (i = n - 1; i >= 1; --i) {
-        smooth[i] = 0.5f * (smooth[i] + smooth[i - 1]);
+    // -------------------------------------------------
+    // Pass 2:
+    // Fully fused pipeline
+    // -------------------------------------------------
+
+    float prev_ap = A[0] + G[0];
+
+    {
+        float s = prev_ap;
+
+        float inv = 1.0f / (1.0f + std::fabs(s));
+
+        float b_prime =
+            B[0] * (1.0f - G[0]) * avg_a;
+
+        float c_prime =
+            C[0] + s * inv;
+
+        float e =
+            (s * c_prime + b_prime) * inv;
+
+        float r = c_prime - e;
+
+        F[0] = (r > 0.0f) ? r : 0.0f;
     }
 
-    // ── Pass 3: Stages 5-9, matching naive formula structure exactly ───────
-    for (i = 0; i < n; ++i) {
-        float s = smooth[i];
-        float abs_s = std::fabs(s);
-        float inv_s = 1.0f / (1.0f + abs_s);
+    #pragma GCC ivdep
+    for (size_t i = 1; i < n; ++i) {
 
-        // Stage 5: B_prime = B * (1-G) * avg_a
-        float b_prime = B[i] * (1.0f - G_arr[i]) * avg_a;
+        float ap = A[i] + G[i];
 
-        // Stage 6: C_prime = C + Smooth / (1+|Smooth|)
-        float c_prime = C[i] + s * inv_s;
+        float s = 0.5f * (ap + prev_ap);
 
-        // Stage 7: H = Smooth * C_prime
-        float h = s * c_prime;
+        prev_ap = ap;
 
-        // Stage 8: E = (H + B_prime) / (1+|Smooth|)
-        float e = (h + b_prime) * inv_s;
+        float inv = 1.0f / (1.0f + std::fabs(s));
 
-        // Stage 9: ReLU
-        float result = c_prime - e;
-        F[i] = (result > 0.0f) ? result : 0.0f;
+        float b_prime =
+            B[i] * (1.0f - G[i]) * avg_a;
+
+        float c_prime =
+            C[i] + s * inv;
+
+        float e =
+            (s * c_prime + b_prime) * inv;
+
+        float r = c_prime - e;
+
+        F[i] = (r > 0.0f) ? r : 0.0f;
     }
 }
 
