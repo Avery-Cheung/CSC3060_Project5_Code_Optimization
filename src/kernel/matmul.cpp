@@ -5,6 +5,7 @@
 #include <random>
 #include <stdexcept>
 #include <vector>
+#include <thread>
 
 void initialize_matmul(matmul_args& args, int n, uint32_t seed) {
     if (n <= 0) {
@@ -49,47 +50,113 @@ void stu_matmul(std::vector<float>& C,
                 const std::vector<float>& B,
                 int n) {
 
-    // 初始化输出矩阵，避免累加脏数据
+    constexpr int COL_TILE = 128;
+
+    // 初始化输出矩阵
     std::fill(C.begin(), C.end(), 0.0f);
 
-    // 使用原始指针访问，提高访问效率（避免 vector 边界检查开销）
-    const float* lhs = A.data();
-    const float* rhs = B.data();
-    float* out = C.data();
+    const float* __restrict lhs = A.data();
+    const float* __restrict rhs = B.data();
+    float* __restrict out = C.data();
 
-    // 分块尺寸：用于提升 cache locality
-    constexpr int tile = 64;
+    // 每个线程处理一段连续行
+    auto compute_rows = [&](int begin_row, int end_row) {
 
-    // 按 tile 划分三维遍历空间
-    for (int rowBlock = 0; rowBlock < n; rowBlock += tile) {
-        for (int colBlock = 0; colBlock < n; colBlock += tile) {
-            for (int innerBlock = 0; innerBlock < n; innerBlock += tile) {
+        for (int row = begin_row; row < end_row; ++row) {
 
-                const int rowEnd = std::min(rowBlock + tile, n);
-                const int colEnd = std::min(colBlock + tile, n);
-                const int innerEnd = std::min(innerBlock + tile, n);
+            float* __restrict out_row =
+                out + static_cast<std::size_t>(row) * n;
 
-                // 遍历当前 tile 子矩阵
-                for (int r = rowBlock; r < rowEnd; ++r) {
+            const float* __restrict lhs_row =
+                lhs + static_cast<std::size_t>(row) * n;
 
-                    const int baseA = r * n;
-                    const int baseC = r * n;
+            // 按列分块，提升 cache locality
+            for (int col_block = 0; col_block < n; col_block += COL_TILE) {
 
-                    for (int k = innerBlock; k < innerEnd; ++k) {
+                const int col_limit =
+                    std::min(col_block + COL_TILE, n);
 
-                        const float factor = lhs[baseA + k];
-                        const int baseB = k * n;
+                for (int k = 0; k < n; ++k) {
 
-                        float* cRow = out + baseC;
+                    const float scale = lhs_row[k];
 
-                        // 顺序扫描列方向，保证 B/C 连续访问
-                        for (int c = colBlock; c < colEnd; ++c) {
-                            cRow[c] += factor * rhs[baseB + c];
-                        }
+                    const float* __restrict rhs_row =
+                        rhs + static_cast<std::size_t>(k) * n;
+
+                    int col = col_block;
+
+                    // 手动展开内层循环
+                    for (; col + 7 < col_limit; col += 8) {
+
+                        out_row[col]     += scale * rhs_row[col];
+                        out_row[col + 1] += scale * rhs_row[col + 1];
+                        out_row[col + 2] += scale * rhs_row[col + 2];
+                        out_row[col + 3] += scale * rhs_row[col + 3];
+
+                        out_row[col + 4] += scale * rhs_row[col + 4];
+                        out_row[col + 5] += scale * rhs_row[col + 5];
+                        out_row[col + 6] += scale * rhs_row[col + 6];
+                        out_row[col + 7] += scale * rhs_row[col + 7];
+                    }
+
+                    // 处理剩余元素
+                    for (; col < col_limit; ++col) {
+                        out_row[col] += scale * rhs_row[col];
                     }
                 }
             }
         }
+    };
+
+    // 根据硬件线程数决定并行规模
+    const unsigned cpu_threads = std::thread::hardware_concurrency();
+
+    const int worker_count =
+        std::min<int>(
+            16,
+            std::max<int>(
+                1,
+                cpu_threads == 0 ? 8 : static_cast<int>(cpu_threads)));
+
+    // 小矩阵直接单线程
+    if (worker_count <= 1 || n < 128) {
+        compute_rows(0, n);
+        return;
+    }
+
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<std::size_t>(worker_count - 1));
+
+    const int chunk =
+        (n + worker_count - 1) / worker_count;
+
+    int current_row = 0;
+
+    for (int t = 1; t < worker_count; ++t) {
+
+        const int next_row =
+            std::min(n, current_row + chunk);
+
+        if (current_row >= next_row) {
+            break;
+        }
+
+        pool.emplace_back(
+            compute_rows,
+            current_row,
+            next_row);
+
+        current_row = next_row;
+    }
+
+    // 主线程处理剩余部分
+    if (current_row < n) {
+        compute_rows(current_row, n);
+    }
+
+    // 等待所有线程结束
+    for (auto& th : pool) {
+        th.join();
     }
 }
 
