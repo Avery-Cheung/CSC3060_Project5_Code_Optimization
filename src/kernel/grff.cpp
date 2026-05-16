@@ -4,7 +4,6 @@
 #include <immintrin.h>
 #include <random>
 
-
 void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_t seed) {
     if (!args) return;
 
@@ -15,7 +14,6 @@ void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_
     args->b_features.resize(size);
     args->c_features.resize(size);
     args->f_output.resize(size);
-    args->scratch.resize(size * 2);
 
     for (size_t i = 0; i < size; ++i) {
         args->a_features[i] = dist(gen);
@@ -29,16 +27,16 @@ void initialize_grff(grff_args *args, const size_t size, const std::uint_fast64_
 // -------------------------------------------------------------------------
 void naive_grff(grff_args& args) {
     size_t n = args.a_features.size();
-
+    
     // Intermediate buffers
     std::vector<float> G(n), A_prime(n), Smooth_A(n), B_prime(n), C_prime(n), H(n), E(n);
 
     // Stage 1: Gate
-    for (size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i) 
         G[i] = 0.5f * ((args.a_features[i] * args.b_features[i]) / (1.0f + std::abs(args.a_features[i] * args.b_features[i])) + 1.0f);
 
     // Stage 2: Update A (Residual)
-    for (size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i) 
         A_prime[i] = args.a_features[i] + G[i];
 
     // Stage 3: Global Feature Scaling
@@ -51,23 +49,23 @@ void naive_grff(grff_args& args) {
     // Stage 4: Update A (Smooth)
     Smooth_A[0] = A_prime[0];
     for (size_t i = 1; i < n; ++i) {
-        Smooth_A[i] = (A_prime[i] + A_prime[i-1]) * 0.5f;
+        Smooth_A[i] = (A_prime[i] + A_prime[i-1]) * 0.5f; 
     }
 
     // Stage 5: Update B (Suppression)
-    for (size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i) 
         B_prime[i] = args.b_features[i] * (1.0f - G[i]) * avg_a;
 
-    // Stage 6: Context Integration
-    for (size_t i = 0; i < n; ++i)
+    // Stage 6: Context Integration 
+    for (size_t i = 0; i < n; ++i) 
         C_prime[i] = args.c_features[i] + (Smooth_A[i] / (1.0f + std::abs(Smooth_A[i])));
 
     // Stage 7: Hidden Interaction
-    for (size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i) 
         H[i] = Smooth_A[i] * C_prime[i];
 
     // Stage 8: Normalization
-    for (size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i) 
         E[i] = (H[i] + B_prime[i]) / (1.0f + std::abs(Smooth_A[i]));
 
     // Stage 9: Final Output (ReLU)
@@ -80,9 +78,9 @@ void naive_grff(grff_args& args) {
 // -------------------------------------------------------------------------
 // TODO: Student Implementation
 // -------------------------------------------------------------------------
-
 void stu_grff(grff_args& args) {
     const size_t n = args.a_features.size();
+<<<<<<< HEAD
     if (n == 0) return;
 
     args.f_output.resize(n);
@@ -194,7 +192,60 @@ void stu_grff(grff_args& args) {
         float r = cp - e;
         F[i] = (r > 0.0f) ? r : 0.0f;
         prev_ap = ap;
+=======
+    if (n == 0) {
+        return;
     }
+
+    static thread_local std::vector<float> a_prime;
+    a_prime.resize(n);
+
+    const float *__restrict__ a = args.a_features.data();
+    const float *__restrict__ b = args.b_features.data();
+    const float *__restrict__ c = args.c_features.data();
+    float *__restrict__ out = args.f_output.data();
+    float *__restrict__ ap_data = a_prime.data();
+
+    float sum_a = 0.0f;
+    for (size_t i = 0; i < n; ++i) {
+        const float ab = a[i] * b[i];
+        const float g = 0.5f * ((ab / (1.0f + std::abs(ab))) + 1.0f);
+        const float ap = a[i] + g;
+        ap_data[i] = ap;
+        sum_a += ap;
+    }
+    const float avg_a = sum_a / static_cast<float>(n);
+
+    float ap = ap_data[0];
+    float prev_ap = ap;
+    {
+        const float smooth = ap;
+        const float g = ap - a[0];
+        const float b_prime = b[0] * (1.0f - g) * avg_a;
+        const float smooth_abs = std::abs(smooth);
+        const float c_prime = c[0] + (smooth / (1.0f + smooth_abs));
+        const float h = smooth * c_prime;
+        const float e = (h + b_prime) / (1.0f + smooth_abs);
+        const float result = c_prime - e;
+        out[0] = std::max(result, 0.0f);
+    }
+
+    for (size_t i = 1; i < n; ++i) {
+        ap = ap_data[i];
+        const float smooth = (ap + prev_ap) * 0.5f;
+        prev_ap = ap;
+
+        const float g = ap - a[i];
+        const float b_prime = b[i] * (1.0f - g) * avg_a;
+        const float smooth_abs = std::abs(smooth);
+        const float c_prime = c[i] + (smooth / (1.0f + smooth_abs));
+        const float h = smooth * c_prime;
+        const float e = (h + b_prime) / (1.0f + smooth_abs);
+        const float result = c_prime - e;
+        out[i] = std::max(result, 0.0f);
+>>>>>>> parent of 11810bb (Update grff.cpp)
+    }
+
 }
 
 // -------------------------------------------------------------------------
