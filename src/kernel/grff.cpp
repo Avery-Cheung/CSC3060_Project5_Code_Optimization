@@ -82,339 +82,142 @@ void naive_grff(grff_args& args) {
 
 void stu_grff(grff_args& args) {
 
-    const size_t n = args.a_features.size();
-    if (n == 0) return;
+    const size_t len = args.a_features.size();
 
-    args.f_output.resize(n);
-    args.scratch.resize(n);
+    if (len == 0) {
+        return;
+    }
 
-    const float* __restrict A =
+    static thread_local std::vector<float> fused_a;
+    fused_a.resize(len);
+
+    const float* __restrict__ feat_a =
         args.a_features.data();
 
-    const float* __restrict B =
+    const float* __restrict__ feat_b =
         args.b_features.data();
 
-    const float* __restrict C =
+    const float* __restrict__ feat_c =
         args.c_features.data();
 
-    float* __restrict F =
+    float* __restrict__ output =
         args.f_output.data();
 
-    float* __restrict G =
-        args.scratch.data();
+    float* __restrict__ cache =
+        fused_a.data();
 
-    // =================================================
-    // Pass 1:
-    // compute G + accumulate sum
-    // =================================================
+    // =========================================
+    // stage 1:
+    // build fused feature + accumulate mean
+    // =========================================
 
-    float sum0 = 0.0f;
-    float sum1 = 0.0f;
-    float sum2 = 0.0f;
-    float sum3 = 0.0f;
+    float accum = 0.0f;
 
-    size_t i = 0;
+    for (size_t idx = 0; idx < len; ++idx) {
 
-    #pragma GCC ivdep
-    #pragma GCC unroll 8
-    for (; i + 4 <= n; i += 4) {
+        const float mul =
+            feat_a[idx] * feat_b[idx];
 
-        float p0 = A[i]     * B[i];
-        float p1 = A[i + 1] * B[i + 1];
-        float p2 = A[i + 2] * B[i + 2];
-        float p3 = A[i + 3] * B[i + 3];
-
-        float g0 =
+        const float gate =
             0.5f *
             (
-                p0 / (1.0f + std::fabs(p0))
+                mul / (1.0f + std::abs(mul))
                 + 1.0f
             );
 
-        float g1 =
-            0.5f *
-            (
-                p1 / (1.0f + std::fabs(p1))
-                + 1.0f
-            );
+        const float merged =
+            feat_a[idx] + gate;
 
-        float g2 =
-            0.5f *
-            (
-                p2 / (1.0f + std::fabs(p2))
-                + 1.0f
-            );
+        cache[idx] = merged;
 
-        float g3 =
-            0.5f *
-            (
-                p3 / (1.0f + std::fabs(p3))
-                + 1.0f
-            );
-
-        G[i]     = g0;
-        G[i + 1] = g1;
-        G[i + 2] = g2;
-        G[i + 3] = g3;
-
-        sum0 += A[i]     + g0;
-        sum1 += A[i + 1] + g1;
-        sum2 += A[i + 2] + g2;
-        sum3 += A[i + 3] + g3;
+        accum += merged;
     }
 
-    float sum_a =
-        sum0 + sum1 + sum2 + sum3;
+    const float global_scale =
+        accum / static_cast<float>(len);
 
-    for (; i < n; ++i) {
+    // =========================================
+    // stage 2:
+    // reconstruction pipeline
+    // =========================================
 
-        float p = A[i] * B[i];
-
-        float g =
-            0.5f *
-            (
-                p / (1.0f + std::fabs(p))
-                + 1.0f
-            );
-
-        G[i] = g;
-
-        sum_a += A[i] + g;
-    }
-
-    const float avg_a =
-        sum_a / static_cast<float>(n);
-
-    // =================================================
-    // Pass 2:
-    // fused pipeline
-    // =================================================
-
-    float prev_ap =
-        A[0] + G[0];
+    float prev_feature =
+        cache[0];
 
     {
-        float s = prev_ap;
+        const float smooth_feature =
+            prev_feature;
 
-        float inv =
-            1.0f /
-            (1.0f + std::fabs(s));
+        const float recovered_gate =
+            smooth_feature - feat_a[0];
 
-        float cp =
-            C[0] + s * inv;
+        const float damp =
+            1.0f + std::abs(smooth_feature);
 
-        float bp =
-            B[0] *
-            (1.0f - G[0]) *
-            avg_a;
+        const float context =
+            feat_c[0] +
+            smooth_feature / damp;
 
-        float r =
-            cp -
-            ((s * cp + bp) * inv);
+        const float suppress =
+            feat_b[0] *
+            (1.0f - recovered_gate) *
+            global_scale;
 
-        F[0] =
-            (r > 0.0f)
-            ? r
-            : 0.0f;
+        const float hidden =
+            smooth_feature * context;
+
+        const float normalized =
+            (hidden + suppress) / damp;
+
+        const float final_value =
+            context - normalized;
+
+        output[0] =
+            std::max(final_value, 0.0f);
     }
 
-    i = 1;
+    for (size_t idx = 1; idx < len; ++idx) {
 
-    // =================================================
-    // software-pipelined main loop
-    // =================================================
+        const float current_feature =
+            cache[idx];
 
-    #pragma GCC ivdep
-    #pragma GCC unroll 8
-    for (; i + 4 <= n; i += 4) {
-
-        // -----------------------------
-        // lane 0
-        // -----------------------------
-
-        float ap0 =
-            A[i] + G[i];
-
-        float s0 =
+        const float blended =
             0.5f *
-            (ap0 + prev_ap);
+            (
+                current_feature +
+                prev_feature
+            );
 
-        prev_ap = ap0;
+        prev_feature = current_feature;
 
-        // -----------------------------
-        // lane 1
-        // -----------------------------
+        const float recovered_gate =
+            current_feature - feat_a[idx];
 
-        float ap1 =
-            A[i + 1] + G[i + 1];
+        const float denom =
+            1.0f + std::abs(blended);
 
-        float s1 =
-            0.5f *
-            (ap1 + prev_ap);
+        const float context =
+            feat_c[idx] +
+            blended / denom;
 
-        prev_ap = ap1;
+        const float suppress =
+            feat_b[idx] *
+            (1.0f - recovered_gate) *
+            global_scale;
 
-        // -----------------------------
-        // lane 2
-        // -----------------------------
+        const float interaction =
+            blended * context;
 
-        float ap2 =
-            A[i + 2] + G[i + 2];
+        const float normalized =
+            (interaction + suppress) / denom;
 
-        float s2 =
-            0.5f *
-            (ap2 + prev_ap);
+        const float result =
+            context - normalized;
 
-        prev_ap = ap2;
-
-        // -----------------------------
-        // lane 3
-        // -----------------------------
-
-        float ap3 =
-            A[i + 3] + G[i + 3];
-
-        float s3 =
-            0.5f *
-            (ap3 + prev_ap);
-
-        prev_ap = ap3;
-
-        // -----------------------------
-        // reciprocal terms
-        // -----------------------------
-
-        float inv0 =
-            1.0f /
-            (1.0f + std::fabs(s0));
-
-        float inv1 =
-            1.0f /
-            (1.0f + std::fabs(s1));
-
-        float inv2 =
-            1.0f /
-            (1.0f + std::fabs(s2));
-
-        float inv3 =
-            1.0f /
-            (1.0f + std::fabs(s3));
-
-        // -----------------------------
-        // c_prime
-        // -----------------------------
-
-        float cp0 =
-            C[i] + s0 * inv0;
-
-        float cp1 =
-            C[i + 1] + s1 * inv1;
-
-        float cp2 =
-            C[i + 2] + s2 * inv2;
-
-        float cp3 =
-            C[i + 3] + s3 * inv3;
-
-        // -----------------------------
-        // b_prime
-        // -----------------------------
-
-        float bp0 =
-            B[i] *
-            (1.0f - G[i]) *
-            avg_a;
-
-        float bp1 =
-            B[i + 1] *
-            (1.0f - G[i + 1]) *
-            avg_a;
-
-        float bp2 =
-            B[i + 2] *
-            (1.0f - G[i + 2]) *
-            avg_a;
-
-        float bp3 =
-            B[i + 3] *
-            (1.0f - G[i + 3]) *
-            avg_a;
-
-        // -----------------------------
-        // final
-        // -----------------------------
-
-        float r0 =
-            cp0 -
-            ((s0 * cp0 + bp0) * inv0);
-
-        float r1 =
-            cp1 -
-            ((s1 * cp1 + bp1) * inv1);
-
-        float r2 =
-            cp2 -
-            ((s2 * cp2 + bp2) * inv2);
-
-        float r3 =
-            cp3 -
-            ((s3 * cp3 + bp3) * inv3);
-
-        F[i] =
-            (r0 > 0.0f)
-            ? r0
-            : 0.0f;
-
-        F[i + 1] =
-            (r1 > 0.0f)
-            ? r1
-            : 0.0f;
-
-        F[i + 2] =
-            (r2 > 0.0f)
-            ? r2
-            : 0.0f;
-
-        F[i + 3] =
-            (r3 > 0.0f)
-            ? r3
-            : 0.0f;
-    }
-
-    for (; i < n; ++i) {
-
-        float ap =
-            A[i] + G[i];
-
-        float s =
-            0.5f *
-            (ap + prev_ap);
-
-        prev_ap = ap;
-
-        float inv =
-            1.0f /
-            (1.0f + std::fabs(s));
-
-        float cp =
-            C[i] + s * inv;
-
-        float bp =
-            B[i] *
-            (1.0f - G[i]) *
-            avg_a;
-
-        float r =
-            cp -
-            ((s * cp + bp) * inv);
-
-        F[i] =
-            (r > 0.0f)
-            ? r
-            : 0.0f;
+        output[idx] =
+            std::max(result, 0.0f);
     }
 }
-
 
 // -------------------------------------------------------------------------
 // Wrappers and Checker
