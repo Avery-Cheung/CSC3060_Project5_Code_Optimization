@@ -1,12 +1,11 @@
 #include "grff.h"
 #include <algorithm>
 #include <cmath>
-#include <immintrin.h>
 #include <random>
 
-#pragma GCC optimize("O3,unroll-loops")
+#pragma GCC optimize("O3")
 #pragma GCC target("avx2,fma")
-
+#include <vector>
 #include <immintrin.h>
 
 
@@ -88,7 +87,13 @@ void stu_grff(grff_args& args) {
     const size_t len = args.a_features.size();
     if (len == 0) return;
 
-    float* __restrict__ scratch_ptr = args.scratch.data();
+    // 修复段错误的核心：自己维护并分配中间数组，绝不依赖外层的 args.scratch
+    static thread_local std::vector<float> fused_buffer;
+    if (fused_buffer.size() < len) {
+        fused_buffer.resize(len);
+    }
+    
+    float* __restrict__ scratch_ptr = fused_buffer.data();
     const float* __restrict__ feat_a = args.a_features.data();
     const float* __restrict__ feat_b = args.b_features.data();
     const float* __restrict__ feat_c = args.c_features.data();
@@ -105,7 +110,7 @@ void stu_grff(grff_args& args) {
         const __m256 halves = _mm256_set1_ps(0.5f);
         const __m256 twos   = _mm256_set1_ps(2.0f);
         const __m256 zeroes = _mm256_setzero_ps();
-        // AVX2 用于求绝对值的位掩码 (0x7FFFFFFF)
+        // 提取符号位的掩码
         const __m256 sign_mask = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF));
 
         // =====================================
@@ -157,7 +162,6 @@ void stu_grff(grff_args& args) {
             }
         }
 
-        // 局部累加汇总
         float temp[8];
         _mm256_storeu_ps(temp, v_local_accum);
         for(int k = 0; k < 8; ++k) local_accum += temp[k];
@@ -170,7 +174,6 @@ void stu_grff(grff_args& args) {
         float global_mean = accum / static_cast<float>(len);
         __m256 v_global_mean = _mm256_set1_ps(global_mean);
 
-        // 串行执行边界条件
         #pragma omp single
         {
             float smoothed = scratch_ptr[0];
@@ -193,7 +196,6 @@ void stu_grff(grff_args& args) {
                 __m256 curr0 = _mm256_loadu_ps(scratch_ptr + i);
                 __m256 curr1 = _mm256_loadu_ps(scratch_ptr + i + 8);
 
-                // 通过错位读取来实现滑窗，避免了标量计算
                 __m256 prev0 = _mm256_loadu_ps(scratch_ptr + i - 1);
                 __m256 prev1 = _mm256_loadu_ps(scratch_ptr + i + 7);
 
