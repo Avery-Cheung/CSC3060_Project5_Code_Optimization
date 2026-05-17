@@ -2,9 +2,10 @@
 
 **Platform:** Intel Xeon Silver 4210R @ 2.40GHz (Cascade Lake), 40 CPUs, AVX-512  
 **Compiler:** GCC/Clang with `-ffast-math -O2`  
-**Language:** C++23
-**Date:** 2026-05-16
+**Language:** C++23  
+**Date:** 2026-05-16  
 **Group Members:** YIQI LI (124090324), JUNHONG JIANG (124090252)
+
 ---
 
 ## 1. GRFF — Gated Residual Feature Fusion
