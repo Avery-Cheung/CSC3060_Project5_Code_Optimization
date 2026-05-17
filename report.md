@@ -6,6 +6,8 @@
 **Date:** 2026-05-16  
 **Group Members:** YIQI LI (124090324), JUNHONG JIANG (124090252)
 
+> **Team Scoring:** Both members should receive the same score.
+
 ---
 
 ## 1. GRFF — Gated Residual Feature Fusion
